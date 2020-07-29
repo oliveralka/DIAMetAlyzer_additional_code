@@ -1,0 +1,339 @@
+---
+title: "comparison_matrix_vis"
+author: "Oliver Alka"
+date: "9/19/2019"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(MESS)
+library(stringr)
+library(scales)
+theme_set(
+  theme_minimal() +
+    theme(legend.position = "right",
+          text = element_text(size=20),
+          axis.text.x = element_text(size = 20, angle = -90, hjust=0.95,color = "black", face = "plain", vjust = 0.3),
+          axis.text.y = element_text(size = 20, hjust = 0 ,color = "black", face = "plain")
+          )
+  )
+
+base_size = 20
+p_width = 10
+p_height = 10
+p_dpi = 300
+
+method_line_size = 1
+
+```
+
+```{r input}
+
+input_comparison <-  "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20200620_4423/comparison/matrix_all_20200702_oldref_oldground.tsv"
+out_dir <- "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20200620_4423/comparison/cpp_fig_woldref_woldgroundtruth/"
+
+prefix <- "052"
+export_matrix <- paste(out_dir, "all_", prefix ,"_confusion_export.tsv", sep = "")
+comparison <- read.csv(input_comparison, sep = "\t", quote = '\"')
+
+comparison <- comparison[order(comparison$estimatedFDR),]
+
+# depends on the name - with digit 
+extractMethod <- function(x)
+{
+  method = str_match(x,"comp_(\\w+)_\\d+_pyprophet")[2]
+  #method = str_match(x,"comp_(\\w+)_\\d+_")[2]
+  #method = str_match(x,"comp_(\\w+\\d+\\-\\d+)_\\d+_")[2] #pub
+  return(method)
+}
+
+comparison["method"] = apply(comparison[,"Name",drop=F], 1, extractMethod)
+```
+
+```{r }
+calcFDR <- function(fp,tp)
+{
+  return( as.numeric(fp)/(as.numeric(fp)+as.numeric(tp)) )
+} 
+
+calcSensitivity <- function(tp,fn)
+{
+  return( as.numeric(tp)/(as.numeric(tp)+as.numeric(fn)) )
+}
+
+calcSpecificity <- function(tn,fp)
+{
+  return( as.numeric(tn)/(as.numeric(tn)+as.numeric(fp)) )
+}
+
+calcPrec <- function(tp,fp)
+{
+  return( as.numeric(tp)/(as.numeric(tp)+as.numeric(fp)) )
+}
+
+calcFPR <- function(fp,tn)
+{
+  return( as.numeric(fp)/(as.numeric(fp)+as.numeric(tn)) )
+}
+
+calcACC <- function(tp,tn,fp,fn)
+{
+  return( (as.numeric(tp)+as.numeric(tn))/(as.numeric(tp)+as.numeric(tn)+as.numeric(fp)+as.numeric(fn)) )
+}
+
+calcF1 <- function(tp,tn,fp,fn)
+{
+  return( (2*as.numeric(tp))/(2*as.numeric(tp)+as.numeric(fp)+as.numeric(fn)) )
+}
+
+calcMCC <- function(tp,tn,fp,fn)
+{
+  return( (as.numeric(tp)*as.numeric(tn)-as.numeric(fp)*as.numeric(fn))/sqrt( (as.numeric(tp)+as.numeric(fp))*(as.numeric(tp)+as.numeric(fn))*(as.numeric(tn)+as.numeric(fp))*(as.numeric(tn)+as.numeric(fn)) ))
+}
+
+comparison['calcFDR']<- calcFDR(comparison$FP,comparison$TP)
+comparison['calcSensitivity'] <- calcSensitivity(comparison$TP,comparison$FN)
+comparison['calcSpecificty'] <- calcSpecificity(comparison$TN,comparison$FP)
+comparison['calcPrecision'] <- calcPrec(comparison$TP,comparison$FP)
+comparison['calcFPR'] <- calcFPR(comparison$FP,comparison$TN)
+comparison['calcACC'] <- calcACC(comparison$TP,comparison$TN,comparison$FP,comparison$FN)
+comparison['calcF1'] <- calcF1(comparison$TP,comparison$TN,comparison$FP,comparison$FN)
+comparison['calcMCC'] <- calcMCC(comparison$TP,comparison$TN,comparison$FP,comparison$FN)
+
+write.csv(comparison, export_matrix)
+
+```
+
+```{r plotting}
+# remove TP = 0 (to remove NaN)
+comparison <- comparison[comparison$TP != 0,]
+
+# FDR vs estimatedFDR
+p_fdr <- ggplot(comparison, aes(x=calcFDR, y=estimatedFDR)) +
+  scale_x_continuous(limits=c(0.0,max(comparison$estimatedFDR)),breaks = seq(0.0, max(comparison$estimatedFDR), by = 0.03)) +
+  scale_y_continuous(limits=c(0.0,max(comparison$estimatedFDR)),breaks = seq(0.0, max(comparison$estimatedFDR), by = 0.03)) +
+  geom_abline(aes(intercept=0, slope=1), linetype = "dotdash") +
+  theme_classic() +
+  theme_bw(base_size=base_size) +
+  #theme(legend.position = "none",
+  theme(legend.position = c(.22, .97),
+        legend.justification = c("right", "top"),
+        legend.box.just = "right",
+        legend.margin = margin(6, 6, 6, 6),
+  #theme(
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust=0.95,color = "black", face = "plain", vjust = 0.3),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+  xlab("\nFDR") + ylab("Estimated FDR\n")
+  
+p_fdr <- p_fdr + geom_line(aes(color = method), size = method_line_size) + coord_fixed()
+p_fdr
+
+ggsave(paste(out_dir,prefix,"comparisonFDR.png",sep=""),p_fdr,width = p_width, height = p_height ,dpi=p_dpi)
+
+# FDR vs estimatedFDR
+p_fdr_zoom <- ggplot(comparison, aes(x=calcFDR, y=estimatedFDR)) +
+  scale_x_continuous(limits=c(0.0,0.1),breaks = seq(0.0, 0.1, by = 0.01)) +
+  scale_y_continuous(limits=c(0.0,0.1),breaks = seq(0.0, 0.1, by = 0.01)) +
+  geom_abline(aes(intercept=0,slope=1), linetype = "dotdash") +
+  theme_classic() +
+  theme_bw(base_size=base_size) +
+  theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust=0.95,color = "black", face = "plain", vjust = 0.3),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+  xlab("\nFDR") + ylab("Estimated FDR\n")
+  
+p_fdr_zoom <- p_fdr_zoom + geom_line(aes(color = method), size = method_line_size) + coord_fixed()
+p_fdr_zoom
+
+ggsave(paste(out_dir,prefix,"comparisonFDR_zoom.png",sep=""),p_fdr_zoom, width = p_width, height = p_height ,dpi=p_dpi)
+a
+```
+
+```{r ROC}
+
+minimaldf_proc <- comparison[,c("method","estimatedFDR","calcFPR","calcSensitivity")]
+expanded_proc <- data.frame() 
+unique_methods <- unique(comparison$method)
+
+for (element in unique_methods)
+{
+  # extract current method
+  current_proc <- minimaldf_proc[ minimaldf_proc["method"]==element,]
+  
+  # since all of them have already a starting value - sensitivity = 0, Precision of estimated FDR 0.0
+  current_proc[nrow(current_proc) + 1,] <- c(as.character(element),as.numeric(0.0),as.numeric(0.0),as.numeric(0.0))
+  
+  expanded_proc <- rbind(expanded_proc,current_proc)
+  
+  expanded_proc[nrow(expanded_proc) + 1,] <- c(as.character(element),as.numeric(0.31),as.numeric(1.0),as.numeric(1.0))
+}
+
+#sort again
+expanded_proc$estimatedFDR <- as.numeric(as.character(expanded_proc$estimatedFDR))
+expanded_proc$calcFPR <- as.numeric(as.character(expanded_proc$calcFPR))
+expanded_proc$calcSensitivity <- as.numeric(as.character(expanded_proc$calcSensitivity))
+
+expanded_proc <- expanded_proc[order(expanded_proc$estimatedFDR),]
+expanded_proc <- expanded_proc[order(expanded_proc$method),]
+
+# x= FPR, y=Sensitivtiy 
+p_roc2 <- ggplot(expanded_proc, aes(x=calcFPR, y=calcSensitivity)) +
+     scale_x_continuous(limits=c(0.0,1.0)) +
+     scale_y_continuous(limits=c(0.0,1.0)) +
+     xlab("\nFalse positive rate") + ylab("Sensitivity\n")
+  
+p_roc2 <- p_roc2 + geom_line(aes(color = method), size = 0.8) + coord_fixed()
+p_roc2
+
+ggsave(paste(out_dir,"comparisonROC.png",sep=""),p_roc2,dpi=600)
+
+# iterate and calcuate auc with trapz
+auc_roc <- setNames(data.frame(matrix(ncol = 2, nrow = 0)), c("method", "AUC"))
+
+for (element in unique_methods)
+{
+    current_method <- expanded_proc[ expanded_proc["method"]==element,]
+    current_auc <- trapz(current_method$calcFPR,current_method$calcSensitivity)
+    current_dfauc <- data.frame(element,as.double(current_auc))
+    colnames(current_dfauc) <- c("method","AUC")
+    auc_roc <- rbind(auc_roc,current_dfauc)
+}
+
+plot_roc_auc <- ggplot(auc_roc, aes(x=method,y=AUC)) +
+                scale_y_continuous(limits=c(0.7,1.0)) +
+                ylab("ROC-AUC\n") +
+                xlab("\nCollision energy") +
+                geom_point()
+plot_roc_auc
+
+ggsave(paste(out_dir,"comparisonROC_AUC.png",sep=""),plot_roc_auc,dpi=600)
+
+```
+
+```{r Precision Recall}
+library(caTools)
+
+# extract each method
+# calculate start and endpoint
+
+minimaldf <- comparison[,c("method","estimatedFDR","calcSensitivity","calcPrecision")]
+expanded_df <- data.frame() 
+unique_methods <- unique(comparison$method)
+
+for (element in unique_methods)
+{
+  # add starting point 
+  
+  # extract current method
+  current_part <- minimaldf[ minimaldf["method"]==element,]
+  
+  # since all of them have already a starting value - sensitivity = 0, Precision of estimated FDR 0.00001
+  current_minFDR <- min(current_part$estimatedFDR)
+  current_part[nrow(current_part) + 1,] <- c(as.character(element),as.numeric(0.0),as.numeric(0.0),as.numeric(current_part[current_part$estimatedFDR==current_minFDR,"calcPrecision"]))
+  current_part <- current_part[order(current_part$estimatedFDR),]
+  
+  expanded_df <- rbind(expanded_df,current_part)
+  
+  # calcuate end point based on TP,FP,FN,TN -> P/(P+N)
+  # extract row from originaldf (comparison)
+  endpointrow <-  comparison[comparison["method"]==element & comparison$estimatedFDR == 0.3 , ]
+  
+  # P/(P+N)
+  endpointprec <- ((endpointrow$TP + endpointrow$FN) / (endpointrow$TP + endpointrow$FN + endpointrow$TN + endpointrow$FP))
+
+  expanded_df[nrow(expanded_df) + 1,] <- c(as.character(element),as.numeric(max(comparison$calcFDR)),as.numeric(1.0),as.numeric(endpointprec))
+}
+
+expanded_df$estimatedFDR <- as.numeric(as.character(expanded_df$estimatedFDR))
+expanded_df$calcSensitivity <- as.numeric(as.character(expanded_df$calcSensitivity))
+expanded_df$calcPrecision <- as.numeric(as.character(expanded_df$calcPrecision))
+
+# sort 
+expanded_df <- expanded_df[order(expanded_df$estimatedFDR),]
+expanded_df <- expanded_df[order(expanded_df$method),]
+
+#baseline <- expanded_df[expanded_df$estimatedFDR == 0.3, ]
+#baseline <- mean(baseline$calcPrecision)
+
+p_expanded <- ggplot(expanded_df, aes(x=calcSensitivity, y=calcPrecision)) +
+     scale_x_continuous(limits=c(0.0,1.0)) +
+     scale_y_continuous(limits=c(0.0,1.0)) +
+     theme_classic() +
+  theme_bw(base_size=base_size) +
+  theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust=0.95,color = "black", face = "plain", vjust = 0.3),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+     xlab("\nRecall") + ylab("Precision\n")
+  
+p_expanded <- p_expanded + geom_line(aes(color = method), size = method_line_size) 
+#p_expanded <- p_expanded + geom_hline(yintercept=baseline) + coord_fixed()
+p_expanded
+
+p_zoom <-  ggplot(expanded_df, aes(x=calcSensitivity, y=calcPrecision)) +
+     scale_x_continuous(limits=c(0.0,1.0)) +
+     scale_y_continuous(limits=c(0.5,1.0)) +
+     theme_classic() +
+  theme_bw(base_size=base_size) +
+  theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust=0.95,color = "black", face = "plain", vjust = 0.3),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+     xlab("\nRecall") + ylab("Precision\n")
+
+p_zoom <- p_zoom + geom_line(aes(color = method), size = method_line_size) 
+#p_zoom <- p_zoom + geom_hline(yintercept=baseline) + coord_fixed()
+p_zoom
+
+# FDR vs estimatedFDR
+# p_fdr <- ggplot(comparison, aes(x=calcFDR, y=estimatedFDR)) +
+#   scale_x_continuous(limits=c(0.0,max(comparison$estimatedFDR)),breaks = seq(0.0, max(comparison$estimatedFDR), by = 0.03)) +
+#   scale_y_continuous(limits=c(0.0,max(comparison$estimatedFDR)),breaks = seq(0.0, max(comparison$estimatedFDR), by = 0.03)) +
+#   geom_abline(aes(intercept=0, slope=1), linetype = "dotdash") +
+#   theme_classic() +
+#   theme_bw(base_size=base_size) +
+#   theme(legend.position = "none") +
+#   xlab("\nFDR") + ylab("Estimated FDR\n")
+#   
+# p_fdr <- p_fdr + geom_line(aes(color = method), size = 0.8) + coord_fixed()
+# p_fdr
+
+# iterate and calcuate auc with trapz
+auc_prerec <- setNames(data.frame(matrix(ncol = 2, nrow = 0)), c("method", "AUC"))
+
+for (element in unique_methods)
+{
+    current_method <- expanded_df[ expanded_df["method"]==element,]
+    current_auc <- trapz(current_method$calcSensitivity, current_method$calcPrecision)
+    #current_auc <- auc(current_method$calcSensitivity, current_method$calcPrecision, type='spline') # use MESS spline
+    current_dfauc <- data.frame(element,as.double(current_auc))
+    colnames(current_dfauc) <- c("method","AUC")
+    auc_prerec <- rbind(auc_prerec,current_dfauc)
+}
+
+ggsave(paste(out_dir,"comparisonPRECREC_exact.png",sep=""),p_expanded,width = p_width, height = p_height ,dpi=p_dpi)
+ggsave(paste(out_dir,"comparisonPRECREC_exact_zoom.png",sep=""),p_zoom,width = p_width, height = p_height ,dpi=p_dpi)
+
+plot_prerec_auc <- ggplot(auc_prerec, aes(method,AUC)) +
+                scale_y_continuous(limits=c(0.7,1.0)) +
+                ylab("PREREC-AUC\n") +
+                xlab("\nCollision energy") +
+                geom_point() 
+plot_prerec_auc
+
+ggsave(paste(out_dir,"comparisonPREREC_AUC.png",sep=""), plot_prerec_auc,width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r}
+# add plot to grid 
+library(gridExtra)
+
+ggsave(paste(out_dir,"combinedFDR_prerec.png",sep=""), arrangeGrob(p_fdr,p_zoom, nrow=1, ncol=2), width = p_width*2, height = p_height ,dpi=p_dpi)
+
+
+```
+

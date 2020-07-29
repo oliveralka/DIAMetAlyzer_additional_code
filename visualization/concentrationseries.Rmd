@@ -1,0 +1,1281 @@
+---
+title: "calculateCV"
+author: "Oliver Alka"
+date: "9/19/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(reshape2)
+library(tidyr)
+library(plyr)
+library(stringr)
+library(ggplot2)
+
+theme_set(
+  theme_minimal() +
+    theme(legend.position = "right",
+          text = element_text(size=20),
+          axis.text.x = element_text(size = 20, angle = -90,hjust=0.95,color = "black", face = "plain", vjust = 0.3),
+          axis.text.y = element_text(size = 20, hjust = 0 ,color = "black", face = "plain")
+          )
+  )
+
+base_size = 20
+p_width = 10
+p_height = 10
+p_dpi = 300
+
+method_line_size = 1
+
+```
+
+```{r}
+removeStepMethod <- function(x)
+{
+  sub = str_replace_all(x,"_\\d+","")
+  return(sub)
+}
+
+extractStep <- function(x)
+{
+  sub = str_extract(x,"\\d+$")
+  return(sub)
+}
+```
+
+```{r input}
+# calculate cv at 5% FDR
+input_comparison = "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20200620_4423/comparison/tests/ce_20_50_oldInputref/2_compared/comp_CE25_052_pyprophet_005.tsv"
+out_dir <- "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20200620_4423/comparison/quant_old_ref/"
+
+use_ms1 = F # switch between MS1 and MS2 
+
+input <- read.csv(input_comparison,sep="\t")
+
+#Metabolite, adduct, step
+input["key"] <- paste(input$compoundname,input$adduct,input$step, sep="_")
+
+input[input == 0.0] <- NA
+
+input_before <- input
+
+# use true positive only
+input_tp <- input[input$confusion == "TP",]
+
+```
+
+```{r coeffcient of variation}
+# pyprophet
+# only tp for osw!!
+cv <- input_tp[,c("key","int_pyp","rep")] #true positive for quantitative values 
+cv$key <- factor(cv$key)
+cv_wide <- spread(cv,rep,int_pyp)
+d_wide_clean <- spread(cv,rep,int_pyp)
+
+# only if available in triplicates 
+cv_wide = cv_wide[complete.cases(cv_wide),]
+
+# only calcuate sd and rmean based on the replciates!
+cv_wide$sd_pyp <- apply(cv_wide[,c("1","2","3")], 1, sd, na.rm = F)
+cv_wide$rmean_pyp <- rowMeans(cv_wide[,c("1","2","3")], na.rm = F)
+cv_wide$cv_pyp <- (cv_wide$sd_pyp/cv_wide$rmean_pyp) 
+mean(cv_wide$cv_pyp, na.rm=T)
+
+# skyline
+cv_sky <- input[,c("key","int_sky","rep")]
+cv_sky$key <- factor(cv_sky$key)
+cv_wide_sky <- spread(cv_sky,rep,int_sky)
+
+# only if available in triplicates 
+cv_wide_sky = cv_wide_sky[complete.cases(cv_wide_sky),]
+
+# only calcuate sd and rmean based on the replciates!
+cv_wide_sky$sd_sky <- apply(cv_wide_sky[,c("1","2","3")], 1, sd, na.rm = F)
+cv_wide_sky$rmean_sky <- rowMeans(cv_wide_sky[,c("1","2","3")], na.rm = F)
+cv_wide_sky$cv_sky <- (cv_wide_sky$sd_sky/cv_wide_sky$rmean_sky) 
+mean(cv_wide_sky$cv_sky, na.rm=T)
+
+# merge the two 
+merged <- merge(cv_wide,cv_wide_sky,by.x = "key",by.y = "key")
+
+# only if available in triplicates 
+merged = merged[complete.cases(merged),]
+
+merged_cv <- merged[,c("cv_pyp","cv_sky")]
+colnames(merged_cv) <- c("automatic", "manual")
+rownames(merged_cv) <- merged$key
+
+boxplot(merged_cv,outline=F)
+
+data_long <- merged_cv %>% gather("origin","cv",automatic,manual)
+
+meds <- ddply(data_long, .(origin), summarise, med = round(median(cv),digits=2))
+
+plot_cv <- ggplot(data_long, aes(x=origin, y=cv)) +
+        scale_y_continuous(limits=c(0.0, 0.5)) +
+        geom_boxplot(outlier.shape = NA) +
+        geom_text(data = meds, aes(x = origin, y = med, label = med), size = base_size/3, vjust = -1) +
+        theme_classic() +
+        theme_bw(base_size=base_size) +
+        theme(legend.position = "none",
+        text = element_text(size=base_size),
+        #axis.text.x = element_text(size = base_size, angle = -45, hjust = 0.0 ,color = "black", face = "plain", vjust = 1.0),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+         xlab("Analysis methods") + ylab("Coefficient of variation\n")
+plot_cv
+
+plot_cv_hist <- ggplot(data_long, aes(x=cv,fill=origin)) + 
+                geom_histogram(position="dodge")
+
+plot_cv_hist
+
+ggsave(paste(out_dir,"Coefficientofvariation5FDR.png",sep=""),plot_cv, width = p_width, height = p_height ,dpi=p_dpi)
+
+# Mann-Whitney
+wilcox.test(cv ~ origin, data=data_long, paired = TRUE)
+
+qqplot(merged_cv$automatic, merged_cv$manual)
+cor(merged_cv$automatic, merged_cv$manual)
+
+```
+
+```{r Specific Metabolites}
+# Maybe also check them via skyline - how do they look? 
+# Amidosulfuron 1-2
+# Azaconazole 1-6
+# Fenpyroximate 1-10
+
+# depends on the name!
+extractName <- function(x)
+{
+  name = str_match(x,"(\\w+)_")[1]
+  return(name)
+}
+
+metabolites_all <- merged
+metabolites_all["Name"] = apply(metabolites_all[,"key",drop=F], 1, extractName)
+metabolites_all$Name = substr(metabolites_all$Name,1,nchar(metabolites_all$Name)-1)
+
+myvars <- c("Amidosulfuron", "Azaconazole", "Fenpyroximate")
+metabolites <- subset(metabolites_all, Name %in% myvars)
+metabolites$step <- as.numeric(sapply(metabolites["key"],extractStep))
+
+# second key without replicate 
+metabolites["n_key"] <- sapply(metabolites["key"],removeStepMethod)
+unique_keys <- unique(metabolites$n_key)
+
+filtervars <- c("1.y", "2.y", "3.y", "sd_sky","rmean_sky","cv_sky")
+metabolites <- select(metabolites,-filtervars)
+
+new_metabolites <- data.frame() 
+
+# intensity of the three replicates normalized by the max intensity of the metabolite_adduct_step combination 
+# specific functions for this dataframe to caluclate the log2 standard deviation of the to the max rmean_pyp normalised values
+calc_norm_log2_sd <- function(df)
+{
+  sd(c(log2(df["1.x"]/df["rmean_pyp"]), log2(df["2.x"]/df["rmean_pyp"]), log2(df["3.x"]/df["rmean_pyp"])))
+}
+
+for (element in unique_keys)
+{
+  current_part <- metabolites[ metabolites["n_key"]==element,]
+  current_part["log2_rmean_pyp"] <- log2(current_part["rmean_pyp"]) 
+  current_part["norm_ratio"] <- current_part["rmean_pyp"]/max(current_part["rmean_pyp"])
+  current_part["log2_norm_ratio"] <- log2(current_part["norm_ratio"])
+  current_part["log2_norm_1x"] <-log2(current_part["1.x"]/max(current_part["rmean_pyp"]))
+  current_part["log2_norm_2x"] <-log2(current_part["2.x"]/max(current_part["rmean_pyp"]))
+  current_part["log2_norm_3x"] <-log2(current_part["3.x"]/max(current_part["rmean_pyp"]))
+  current_part["log2_norm_sd"] <- apply(current_part[,c("log2_norm_1x","log2_norm_2x","log2_norm_3x")],1,sd)
+  current_part["log2_1x"] <-log2(current_part["1.x"])
+  current_part["log2_2x"] <-log2(current_part["2.x"])
+  current_part["log2_3x"] <-log2(current_part["3.x"])
+  current_part["log2_sd"] <- apply(current_part[,c("log2_1x","log2_2x","log2_3x")],1,sd)
+  new_metabolites <- rbind(new_metabolites,current_part)
+}
+
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+dilution_axis <- c("1","1:4","1:16","1:64","1:256","1:1024","1:4096","1:16384","1:65536","1:262144")
+step_v <- c(1,2,3,4,5,6,7,8,9,10)
+
+df_dil <- data.frame(dilution,step_v)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+# how many occurences per step
+table(new_metabolites$step)
+labelsx <- as.vector(table(new_metabolites$step))
+
+plotlist = list()
+
+for (element in unique(new_metabolites$Name))
+{
+  current <- subset(new_metabolites, Name %in% element)
+  max_cs <- max(current$step) 
+  if (max_cs < 10)
+  {
+    temprow <- matrix(c(rep.int(NA,length(current))),nrow=1,ncol=length(current))
+ 
+    # make it a data.frame and give cols the same names as data
+    newrow <- data.frame(temprow)
+    colnames(newrow) <- colnames(current)
+ 
+    while (max_cs < 10)
+    {
+      # rbind the empty row to data
+      newrow$step <- max_cs + 1 
+      current <- rbind(current,newrow)
+      max_cs <- max_cs + 1 
+    }
+  }
+
+  plot_metabo_norm <- ggplot(current, aes(x=step, y=log2_norm_ratio)) +
+        geom_boxplot(aes(group=step)) +
+        geom_errorbar(aes(ymin=log2_norm_ratio-log2_norm_sd, ymax=log2_norm_ratio+log2_norm_sd), width=.2,
+                 position=position_dodge(.9)) +
+        scale_x_discrete(limit = step_v, labels = dilution_axis, drop = F) +
+        theme_classic() +
+        theme_bw(base_size=base_size) +
+        theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        xlab("Dilution") + ylab("Log2 (normalized intensity ratio)\n") 
+
+  plot_metabo_norm
+
+  ggsave(paste(out_dir,"ExampleNormRatiolog2","_",element,"_5FDR.png",sep=""),plot_metabo_norm, width = p_width, height = p_height ,dpi=p_dpi)
+  
+    plot_metabo <- ggplot(current, aes(x=step, y=log2_rmean_pyp)) +
+        geom_boxplot(aes(group=step)) +
+        geom_errorbar(aes(ymin=log2_rmean_pyp-log2_sd, ymax=log2_rmean_pyp+log2_sd), width=.2,
+                 position=position_dodge(.9)) +
+        #xlim(0,11) +
+        scale_y_continuous(breaks=seq(7,22.0,1.0)) +
+        ylim(7,22) +
+        scale_x_discrete(limit = step_v, labels = dilution_axis, drop = F) +
+        theme_classic() +
+        theme_bw(base_size=base_size) +
+        theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        xlab("Dilution") + ylab("Log2 (intensity)\n") 
+
+  plot_metabo 
+  
+  # populate different ggplot objects for each element
+  assign(paste("plot_metabo",element,sep="_"),plot_metabo)
+  
+  ggsave(paste(out_dir,"Examplelog2","_",element,"_5FDR.png",sep=""),plot_metabo, width = p_width, height = p_height ,dpi=p_dpi)
+
+}
+```
+
+```{r combinedPlot}
+# add plot to grid 
+library(gridExtra)
+ggsave(paste(out_dir,"Example_combined_int.png",sep=""), arrangeGrob(plot_metabo_Amidosulfuron, plot_metabo_Azaconazole, plot_metabo_Fenpyroximate, nrow=2, ncol=2), width = p_width*2, height = p_height*2 ,dpi=p_dpi)
+```
+
+```{r intensities over the range log10}
+# mean
+d_wide_clean$rmean_pyp <- rowMeans(d_wide_clean[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+d_wide_clean <- d_wide_clean[complete.cases(d_wide_clean),]
+
+# second key without replicate 
+d_wide_clean["n_key"] <- sapply(d_wide_clean["key"],removeStepMethod)
+
+unique_keys <- unique(d_wide_clean$n_key)
+
+new_df <- data.frame() 
+
+# intensity of the three replicates normalized by the max intensity of the metabolite_adduct_step combination 
+for (element in unique_keys)
+{
+  current_part <- d_wide_clean[ d_wide_clean["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_pyp"]/max(current_part["rmean_pyp"])
+  new_df <- rbind(new_df,current_part)
+}
+
+new_df["log10_norm_ratio"] <- log10(new_df["norm_ratio"]) 
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+df_dil <- data.frame(dilution,step)
+df_dil["log10_dilution"]<- log10(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log10_dilution ~ df_dil$step))
+
+# how many occurences per step
+table(new_df$step)
+labelsx <- as.vector(table(new_df$step))
+
+# linearity slope step1-6
+new_df_filter <- new_df[new_df$step <= 6,]
+line_filter <- coef(lm(new_df_filter$log10_norm_ratio ~ new_df_filter$step))
+
+plot <- ggplot(new_df, aes(x=step, y=log10_norm_ratio)) +
+        scale_y_continuous(breaks=seq(0,-6.0,-0.5)) +
+        expand_limits(y=-6.0) +
+        scale_x_continuous(breaks=seq(1.0, 10.0, 1.0)) +
+        annotate(geom = "text", x=1:10,y=0.6, label=labelsx, size=10) +
+        geom_boxplot(aes(group=step)) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        geom_abline(intercept=line_filter[1], slope=line_filter[2], linetype=3)+
+        xlab("\nDilution steps") + ylab("log10 (normalized intensity ratio)\n") 
+plot 
+
+ggsave(paste(out_dir,"NormalizedIntensityRatio5FDR.png",sep=""),plot, width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r intensities over the range log2}
+# mean
+d_wide_clean$rmean_pyp <- rowMeans(d_wide_clean[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+d_wide_clean <- d_wide_clean[complete.cases(d_wide_clean),]
+
+# second key without replicate 
+d_wide_clean["n_key"] <- sapply(d_wide_clean["key"],removeStepMethod)
+
+unique_keys <- unique(d_wide_clean$n_key)
+
+new_df <- data.frame() 
+
+# intensity of the three replicates normalized by the max intensity of the metabolite_adduct_step combination 
+for (element in unique_keys)
+{
+  current_part <- d_wide_clean[ d_wide_clean["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_pyp"]/max(current_part["rmean_pyp"])
+  new_df <- rbind(new_df,current_part)
+}
+
+new_df["log2_norm_ratio"] <- log2(new_df["norm_ratio"]) 
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+dilution_axis <- c("1","1:4","1:16","1:64","1:256","1:1024","1:4096","1:16384","1:65536","1:262144")
+step <- c(1,2,3,4,5,6,7,8,9,10)
+df_dil <- data.frame(dilution,step)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+new_df["dilution_axis"] <- "null"
+for(element in step)
+{
+  print(element)
+  new_df$dilution_axis[new_df$step == element] <- dilution_axis[element] 
+}
+
+# how many occurences per step
+table(new_df$step)
+labelsx <- as.vector(table(new_df$step))
+
+plot_pyp_log2 <- ggplot(new_df, aes(x=step, y=log2_norm_ratio)) +
+        geom_boxplot(aes(group=step)) +
+        scale_y_continuous(breaks=seq(0,-18.0,-0.5)) +
+        #scale_x_continuous(breaks=seq(1.0, 10.0, 1.0)) +
+        scale_x_discrete(limit = step, labels = dilution_axis) +
+        annotate(geom = "text", x=1:10,y=0.6, label=labelsx, size=base_size/3) +
+        theme_classic() +
+        theme_bw(base_size=base_size) +
+        theme(legend.position = "none",
+        text = element_text(size=base_size),
+        #axis.text.x = element_text(size = base_size, angle = -45, hjust = 0.0 ,color = "black", face = "plain", vjust = 1.0),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        xlab("Dilution") + ylab("Log2 (normalized intensity ratio)\n") 
+plot_pyp_log2 
+
+ggsave(paste(out_dir,"NormalizedIntensityRatiolog2_5FDR.png",sep=""),plot_pyp_log2, width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r LOD}
+# based on the normalized intesnity ratios filtered at 5% FDR. If last step the metablites was detected. 
+LOD <- new_df[,c("dilution_axis")]
+table(LOD)
+
+```
+
+```{r combinedPlot}
+# add plot to grid 
+library(gridExtra)
+ggsave(paste(out_dir,"combinedCV_Quant.png",sep=""), arrangeGrob(plot_pyp_log2,plot_cv, nrow=1, ncol=2), width = p_width*2, height = p_height ,dpi=p_dpi)
+```
+
+```{r deviation from the theoretical concentration based on the normalized intenstiy ratio}
+#library(metaMA)
+# mean
+d_wide_clean$rmean_pyp <- rowMeans(d_wide_clean[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+d_wide_clean <- d_wide_clean[complete.cases(d_wide_clean),]
+
+# second key without replicate 
+d_wide_clean["n_key"] <- sapply(d_wide_clean["key"],removeStepMethod)
+
+unique_keys <- unique(d_wide_clean$n_key)
+
+new_df <- data.frame() 
+# intensity of the three replicates normalized by the max intensity of the metabolite_adduct_step combination 
+for (element in unique_keys)
+{
+  current_part <- d_wide_clean[ d_wide_clean["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_pyp"]/max(current_part["rmean_pyp"])
+  new_df <- rbind(new_df,current_part)
+}
+
+# calculate variance based on the theoretical dilution 
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+library(matrixStats)
+
+# variance from the theoreitcal concenentration 
+# i think this is not needed in that way
+# could be performed otherwise 
+
+deviation_df <- data.frame() 
+#var_dev_l <- list()
+for (element in step)
+{
+  print(element)
+  current_step <- new_df[ new_df["step"] == element,]
+  current_step["theo_conz"] <- rep(dilution[element], nrow(current_step))
+  current_step["sd"] <- apply(current_step[,c("theo_conz","norm_ratio")], 1, sd)
+  deviation_df <- rbind(deviation_df, current_step)
+}
+
+
+
+deviation_df["log2_norm_ratio"] <- log2(deviation_df["norm_ratio"]) 
+deviation_df["log2_theo_conz"] <- log2(deviation_df["theo_conz"])
+deviation_df["log2_sd"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, sd)
+
+dev <- function(x)
+{
+  return (x[1]-x[2])
+} 
+
+
+deviation_df["log2_deviation"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, dev)
+
+deviation_df["step"] <- as.numeric(sapply(deviation_df["key"],extractStep))
+
+# variance of the deviation 
+df_dil <- data.frame(dilution,step)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+deviation_df["dilution_axis"] <- "null"
+for(element in step)
+{
+  print(element)
+  deviation_df$dilution_axis[deviation_df$step == element] <- dilution_axis[element] 
+}
+
+# how many occurences per step
+table(deviation_df$step)
+labelsx <- as.vector(table(deviation_df$step))
+
+plot_dev_pyp <- ggplot(deviation_df, aes(x=step, y=log2_theo_conz)) +
+        geom_boxplot(aes(group=step)) +
+        #geom_errorbar(aes(ymin=log2_theo_conz-log2_sd, ymax=log2_theo_conz+log2_sd), width=.2,
+        geom_errorbar(aes(ymin=log2_theo_conz, ymax=log2_theo_conz+log2_sd), width=.2,
+                 position=position_dodge(.9)) +
+        scale_y_continuous(breaks=seq(0,-18.0,-1.0)) +
+        scale_x_discrete(limit = step, labels = dilution_axis) +
+        annotate(geom = "text", x=1:10,y=0.6, label=labelsx, size=base_size/3) +
+        theme_classic() +
+        theme_bw(base_size=base_size) +
+        theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        xlab("Dilution") + ylab("Log2 (devation from the theoretical concentration)\n") 
+plot_dev_pyp  
+
+ggsave(paste(out_dir,"log2sdlog2_5FDR_ymax.png",sep=""), plot_dev_pyp, width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r mean standard devation}
+#library(metaMA)
+# mean
+d_wide_clean$rmean_pyp <- rowMeans(d_wide_clean[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+d_wide_clean <- d_wide_clean[complete.cases(d_wide_clean),]
+
+# second key without replicate 
+d_wide_clean["n_key"] <- sapply(d_wide_clean["key"],removeStepMethod)
+
+unique_keys <- unique(d_wide_clean$n_key)
+
+new_df <- data.frame() 
+# intensity of the three replicates normalized by the max intensity of the metabolite_adduct_step combination 
+for (element in unique_keys)
+{
+  current_part <- d_wide_clean[ d_wide_clean["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_pyp"]/max(current_part["rmean_pyp"])
+  new_df <- rbind(new_df,current_part)
+}
+
+# calculate variance based on the theoretical dilution 
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+library(matrixStats)
+
+# variance from the theoreitcal concenentration 
+# i think this is not needed in that way
+# could be performed otherwise 
+
+deviation_df <- data.frame() 
+d_sd <- list()
+for (element in step)
+{
+  print(element)
+  current_step <- new_df[ new_df["step"] == element,]
+  current_step["theo_conz"] <- rep(dilution[element], nrow(current_step))
+  current_step["sd"] <- apply(current_step[,c("theo_conz","norm_ratio")], 1, sd)
+  d_sd <- c(d_sd,mean(current_step$sd))
+  deviation_df <- rbind(deviation_df, current_step)
+}
+
+deviation_df["log2_norm_ratio"] <- log2(deviation_df["norm_ratio"]) 
+deviation_df["log2_theo_conz"] <- log2(deviation_df["theo_conz"])
+deviation_df["log2_sd"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, sd)
+
+d_log2_sd <- list()
+for (element in step)
+{
+  current_step <- deviation_df[ deviation_df["step"] == element,]
+  d_log2_sd <- c(d_log2_sd,mean(current_step$log2_sd))
+}
+
+dev <- function(x)
+{
+  return (x[1]-x[2])
+} 
+
+deviation_df["log2_deviation"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, dev)
+
+deviation_df["step"] <- as.numeric(sapply(deviation_df["key"],extractStep))
+
+# variance of the deviation 
+df_dil <- data.frame(dilution,step)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+deviation_df["dilution_axis"] <- "null"
+for(element in step)
+{
+  print(element)
+  deviation_df$dilution_axis[deviation_df$step == element] <- dilution_axis[element] 
+}
+
+# how many occurences per step
+table(deviation_df$step)
+labelsx <- as.vector
+
+df_sd <- data.frame()
+df_sd <- as.data.frame(step)
+df_sd <- cbind(df_sd, as.data.frame(unlist(d_log2_sd)))
+colnames(df_sd) <- c("step", "log2_sd")
+
+plot_devsd_pyp <- ggplot(df_sd, aes(x=step, y=log2_sd)) +
+                  geom_line() + 
+        #geom_boxplot(aes(group=step)) +
+        #geom_errorbar(aes(ymin=log2_theo_conz-log2_sd, ymax=log2_theo_conz+log2_sd), width=.2,
+        #geom_errorbar(aes(ymin=log2_theo_conz, ymax=log2_theo_conz+log2_sd), width=.2,
+        #         position=position_dodge(.9)) +
+        #scale_y_continuous(breaks=seq(0,-18.0,-1.0)) +
+        scale_x_discrete(limit = step, labels = dilution_axis) +
+        #annotate(geom = "text", x=1:10,y=0.6, label=labelsx, size=base_size/3) +
+        theme_classic() +
+        theme_bw(base_size=base_size) +
+        theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+        #geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        xlab("Dilution") + ylab("Log2 (standard deviation in regard to the theoretical concentration)\n") 
+
+plot_devsd_pyp  
+
+#ggsave(paste(out_dir,"log2sdlog2_5FDR_ymax.png",sep=""),plot_devsd_pyp, width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r intensities over the range manual log10}
+if(T)
+{
+  
+cv_wide_sky <- spread(cv_sky,rep,int_sky)
+
+  # mean
+cv_wide_sky$rmean_sky <- rowMeans(cv_wide_sky[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+cv_wide_sky <- cv_wide_sky[complete.cases(cv_wide_sky),]
+
+# second key without replicate 
+cv_wide_sky["n_key"] <- sapply(cv_wide_sky["key"], removeStepMethod)
+
+unique_keys <- unique(cv_wide_sky$n_key)
+
+df_new_sky <- data.frame() 
+
+for (element in unique_keys)
+{
+  current_part <- cv_wide_sky[ cv_wide_sky["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_sky"]/max(current_part["rmean_sky"])
+  df_new_sky <- rbind(df_new_sky,current_part)
+}
+
+df_new_sky["log10_norm_ratio"] <- log10(df_new_sky["norm_ratio"])
+df_new_sky["step"] <- as.numeric(sapply(df_new_sky["key"],extractStep))
+
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+df_dil <- data.frame(dilution,step)
+df_dil["log10_dilution"]<- log10(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log10_dilution ~ df_dil$step))
+
+#labelsx <- c(179,172,168,155,134,120,99,57,20,11)
+
+# how many occurences per step
+table(df_new_sky$step)
+
+labelsky <- as.vector(table(df_new_sky$step))
+
+# linearity slope step1-8
+df_new_sky_filter <- df_new_sky[df_new_sky$step <= 6,]
+line_filter <- coef(lm(df_new_sky_filter$log10_norm_ratio ~ df_new_sky_filter$step))
+
+plot <- ggplot(df_new_sky, aes(x=step, y=log10_norm_ratio)) +
+        scale_y_continuous(breaks=seq(0,-6.0,-0.5)) +
+        expand_limits(y=-6.0) +
+        scale_x_continuous(breaks=seq(1.0, 10.0, 1.0)) +
+        annotate(geom = "text", x=1:10,y=0.5, label=labelsky, size=10) +
+        geom_boxplot(aes(group=step)) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        geom_abline(intercept=line_filter[1], slope=line_filter[2], linetype=3)+
+        xlab("\nDilution steps") +
+        ylab("log10 (normalized intensity ratio)\n") 
+
+plot 
+
+ggsave(paste(out_dir,"NormalizedIntensityRatio5FDR_skyline.png",sep=""),plot, width = p_width, height = p_height ,dpi=p_dpi)
+  
+}
+
+# check
+check_pyp <- new_df[new_df$step >= 9,]
+check_sky <- df_new_sky[df_new_sky$step >= 9,]
+
+
+
+```
+
+```{r intensities over the range manual log2}
+if(T)
+{
+  
+cv_wide_sky <- spread(cv_sky,rep,int_sky)
+
+  # mean
+cv_wide_sky$rmean_sky <- rowMeans(cv_wide_sky[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+cv_wide_sky <- cv_wide_sky[complete.cases(cv_wide_sky),]
+
+# second key without replicate 
+cv_wide_sky["n_key"] <- sapply(cv_wide_sky["key"], removeStepMethod)
+
+unique_keys <- unique(cv_wide_sky$n_key)
+
+df_new_sky <- data.frame() 
+
+for (element in unique_keys)
+{
+  current_part <- cv_wide_sky[ cv_wide_sky["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_sky"]/max(current_part["rmean_sky"])
+  df_new_sky <- rbind(df_new_sky,current_part)
+}
+
+df_new_sky["log2_norm_ratio"] <- log2(df_new_sky["norm_ratio"])
+df_new_sky["step"] <- as.numeric(sapply(df_new_sky["key"],extractStep))
+
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+df_dil <- data.frame(dilution,step)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+# how many occurences per step
+table(df_new_sky$step)
+labelsky <- as.vector(table(df_new_sky$step))
+
+# linearity slope step1-8
+df_new_sky_filter <- df_new_sky[df_new_sky$step <= 6,]
+line_filter <- coef(lm(df_new_sky_filter$log2_norm_ratio ~ df_new_sky_filter$step))
+
+plot <- ggplot(df_new_sky, aes(x=step, y=log2_norm_ratio)) +
+        scale_y_continuous(breaks=seq(0,-18.0,-0.5)) +
+        expand_limits(y=-6.0) +
+        scale_x_continuous(breaks=seq(1.0, 10.0, 1.0)) +
+        annotate(geom = "text", x=1:10,y=0.5, label=labelsky, size=10) +
+        geom_boxplot(aes(group=step)) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], lineqtype=2)+ 
+        geom_abline(intercept=line_filter[1], slope=line_filter[2], linetype=3)+
+        xlab("\nDilution steps") +
+        ylab("log10 (normalized intensity ratio)\n") 
+
+plot 
+
+ggsave(paste(out_dir,"NormalizedIntensityRatio5FDRlog2_skyline.png",sep=""),plot, width = p_width, height = p_height ,dpi=p_dpi)
+  
+}
+
+
+```
+
+```{r deviation from the theoretical concentration based on the normalized intenstiy ratio manual }
+#library(metaMA)
+cv_wide_sky <- spread(cv_sky,rep,int_sky)
+
+  # mean
+cv_wide_sky$rmean_sky <- rowMeans(cv_wide_sky[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+cv_wide_sky <- cv_wide_sky[complete.cases(cv_wide_sky),]
+
+# second key without replicate 
+cv_wide_sky["n_key"] <- sapply(cv_wide_sky["key"], removeStepMethod)
+
+unique_keys <- unique(cv_wide_sky$n_key)
+
+df_new_sky <- data.frame() 
+
+for (element in unique_keys)
+{
+  current_part <- cv_wide_sky[ cv_wide_sky["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_sky"]/max(current_part["rmean_sky"])
+  df_new_sky <- rbind(df_new_sky,current_part)
+}
+
+df_new_sky["log2_norm_ratio"] <- log2(df_new_sky["norm_ratio"])
+df_new_sky["step"] <- as.numeric(sapply(df_new_sky["key"],extractStep))
+
+# calculate variance based on the theoretical dilution 
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+library(matrixStats)
+
+# variance from the theoreitcal concenentration 
+# i think this is not needed in that way
+# could be performed otherwise 
+
+deviation_df <- data.frame() 
+#var_dev_l <- list()
+for (element in step)
+{
+  print(element)
+  current_step <- df_new_sky[ df_new_sky["step"] == element,]
+  current_step["theo_conz"] <- rep(dilution[element], nrow(current_step))
+  current_step["sd"] <- apply(current_step[,c("theo_conz","norm_ratio")], 1, sd)
+  deviation_df <- rbind(deviation_df, current_step)
+}
+
+
+deviation_df["log2_norm_ratio"] <- log2(deviation_df["norm_ratio"]) 
+deviation_df["log2_theo_conz"] <- log2(deviation_df["theo_conz"])
+deviation_df["log2_sd"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, sd)
+
+dev <- function(x)
+{
+  return (x[1]-x[2])
+} 
+
+deviation_df["log2_deviation"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, dev)
+
+deviation_df["step"] <- as.numeric(sapply(deviation_df["key"],extractStep))
+
+# variance of the deviation 
+df_dil <- data.frame(dilution,step)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+deviation_df["dilution_axis"] <- "null"
+for(element in step)
+{
+  print(element)
+  deviation_df$dilution_axis[deviation_df$step == element] <- dilution_axis[element] 
+}
+
+# how many occurences per step
+table(deviation_df$step)
+labelsx <- as.vector(table(deviation_df$step))
+
+plot_dev_sky <- ggplot(deviation_df, aes(x=step, y=log2_theo_conz)) +
+        geom_boxplot(aes(group=step)) +
+        geom_errorbar(aes(ymin=log2_theo_conz, ymax=log2_theo_conz+log2_sd), width=.2,
+                 position=position_dodge(.9)) +
+        scale_y_continuous(breaks=seq(0,-18.0,-1.0)) +
+        scale_x_discrete(limit = step, labels = dilution_axis) +
+        annotate(geom = "text", x=1:10,y=0.6, label=labelsx, size=base_size/3) +
+        theme_classic() +
+        theme_bw(base_size=base_size) +
+        theme(legend.position = "none",
+        text = element_text(size=base_size),
+        axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+        axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        xlab("Dilution") + ylab("Log2 (devation from the theoretical concentration)\n") 
+plot_dev_sky  
+
+ggsave(paste(out_dir,"log2sdlog2_5FDR_ymax_manual.png",sep=""),plot_dev_sky, width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r mean standard deviation }
+#library(metaMA)
+cv_wide_sky <- spread(cv_sky,rep,int_sky)
+
+  # mean
+cv_wide_sky$rmean_sky <- rowMeans(cv_wide_sky[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+cv_wide_sky <- cv_wide_sky[complete.cases(cv_wide_sky),]
+
+# second key without replicate 
+cv_wide_sky["n_key"] <- sapply(cv_wide_sky["key"], removeStepMethod)
+
+unique_keys <- unique(cv_wide_sky$n_key)
+
+df_new_sky <- data.frame() 
+
+for (element in unique_keys)
+{
+  current_part <- cv_wide_sky[ cv_wide_sky["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_sky"]/max(current_part["rmean_sky"])
+  df_new_sky <- rbind(df_new_sky,current_part)
+}
+
+df_new_sky["log2_norm_ratio"] <- log2(df_new_sky["norm_ratio"])
+df_new_sky["step"] <- as.numeric(sapply(df_new_sky["key"],extractStep))
+
+# calculate variance based on the theoretical dilution 
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+library(matrixStats)
+
+# variance from the theoreitcal concenentration 
+# i think this is not needed in that way
+# could be performed otherwise 
+
+deviation_df <- data.frame() 
+d_sd_sky <- list()
+for (element in step)
+{
+  print(element)
+  current_step <- df_new_sky[ df_new_sky["step"] == element,]
+  current_step["theo_conz"] <- rep(dilution[element], nrow(current_step))
+  current_step["sd"] <- apply(current_step[,c("theo_conz","norm_ratio")], 1, sd)
+  d_sd_sky <- c(d_sd_sky,mean(current_step$sd))
+  deviation_df <- rbind(deviation_df, current_step)
+}
+
+deviation_df["log2_norm_ratio"] <- log2(deviation_df["norm_ratio"]) 
+deviation_df["log2_theo_conz"] <- log2(deviation_df["theo_conz"])
+deviation_df["log2_sd"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, sd)
+
+d_log2_sd_sky <- list()
+for (element in step)
+{
+  current_step <- deviation_df[ deviation_df["step"] == element,]
+  d_log2_sd_sky <- c(d_log2_sd_sky,mean(current_step$log2_sd))
+}
+
+
+dev <- function(x)
+{
+  return (x[1]-x[2])
+} 
+
+deviation_df["log2_deviation"] <- apply(deviation_df[,c("log2_theo_conz","log2_norm_ratio")], 1, dev)
+
+deviation_df["step"] <- as.numeric(sapply(deviation_df["key"],extractStep))
+
+# variance of the deviation 
+df_dil <- data.frame(dilution,step)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+deviation_df["dilution_axis"] <- "null"
+for(element in step)
+{
+  print(element)
+  deviation_df$dilution_axis[deviation_df$step == element] <- dilution_axis[element] 
+}
+
+# how many occurences per step
+table(deviation_df$step)
+labelsx <- as.vector(table(deviation_df$step))
+
+df_sd_sky <- data.frame()
+df_sd_sky <- as.data.frame(step)
+df_sd_sky <- cbind(df_sd_sky, as.data.frame(unlist(d_log2_sd_sky)))
+colnames(df_sd_sky) <- c("step", "log2_sd_sky")
+
+plot_dev_sd_sky <- ggplot(df_sd_sky, aes(x=step, y=log2_sd_sky)) +
+                   geom_line() +
+                   scale_x_discrete(limit = step, labels = dilution_axis) +
+                   theme_classic() +
+                   theme_bw(base_size=base_size) +
+                   theme(legend.position = "none",
+                   text = element_text(size=base_size),
+                   axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+                   axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+                   xlab("Dilution") + ylab("Log2 (standard devation from the theoretical concentration)\n") 
+
+plot_dev_sd_sky  
+
+ggsave(paste(out_dir,"log2sdlog2_5FDR_ymax_manual.png",sep=""),plot_dev_sd_sky, width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r mean standard deviation merged }
+# all three replicates need to be present 
+merged <- merged[complete.cases(merged),]
+
+# second key without replicate 
+merged["n_key"] <- sapply(merged["key"], removeStepMethod)
+
+unique_keys <- unique(merged$n_key)
+
+df_new_all <- data.frame() 
+for (element in unique_keys)
+{
+  current_part <- merged[ merged["n_key"]==element,]
+  current_part["norm_ratio_sky"] <- current_part["rmean_sky"]/max(current_part["rmean_sky"])
+  current_part["norm_ratio_pyp"] <- current_part["rmean_pyp"]/max(current_part["rmean_pyp"])
+  df_new_all <- rbind(df_new_all,current_part)
+}
+
+df_new_all["log2_norm_ratio_sky"] <- log2(df_new_all["norm_ratio_sky"])
+df_new_all["log2_norm_ratio_pyp"] <- log2(df_new_all["norm_ratio_pyp"])
+df_new_all["step"] <- as.numeric(sapply(df_new_all["key"],extractStep))
+
+# calculate variance based on the theoretical dilution 
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+library(matrixStats)
+
+# variance from the theoreitcal concenentration 
+# i think this is not needed in that way
+# could be performed otherwise 
+
+deviation_df_all <- data.frame() 
+d_sd_a_sky <- list()
+d_sd_a_pyp <- list()
+for (element in step)
+{
+  print(element)
+  current_step <- df_new_all[ df_new_all["step"] == element,]
+  current_step["theo_conz"] <- rep(dilution[element], nrow(current_step))
+  current_step["sd_sky"] <- apply(current_step[,c("theo_conz","norm_ratio_sky")], 1, sd)
+  current_step["sd_pyp"] <- apply(current_step[,c("theo_conz","norm_ratio_pyp")], 1, sd)
+  d_sd_a_sky <- c(d_sd_a_sky,mean(current_step["sd_sky"]))
+  d_sd_a_pyp <- c(d_sd_a_pyp, mean(current_step["sd_pyp"]))
+  deviation_df_all <- rbind(deviation_df_all, current_step)
+}
+
+deviation_df_all["log2_theo_conz"] <- log2(deviation_df_all["theo_conz"])
+
+deviation_df_all["log2_norm_ratio_sky"] <- log2(deviation_df_all["norm_ratio_sky"]) 
+deviation_df_all["log2_sd_sky"] <- apply(deviation_df_all[,c("log2_theo_conz","log2_norm_ratio_sky")], 1, sd)
+
+deviation_df_all["log2_norm_ratio_pyp"] <- log2(deviation_df_all["norm_ratio_pyp"]) 
+deviation_df_all["log2_sd_pyp"] <- apply(deviation_df_all[,c("log2_theo_conz","log2_norm_ratio_pyp")], 1, sd)
+
+d_log2_a_sd_sky <- list()
+d_log2_a_sd_pyp <- list()
+for (element in step)
+{
+  current_step <- deviation_df_all[ deviation_df_all["step"] == element,]
+  d_log2_a_sd_sky <- c(d_log2_a_sd_sky, mean(current_step$log2_sd_sky))
+  d_log2_a_sd_pyp <- c(d_log2_a_sd_pyp, mean(current_step$log2_sd_pyp))
+}
+
+dev <- function(x)
+{
+  return (x[1]-x[2])
+} 
+
+deviation_df_all["step"] <- as.numeric(sapply(deviation_df_all["key"],extractStep))
+
+# variance of the deviation 
+df_dil <- data.frame(dilution,step)
+df_dil["log2_dilution"]<- log2(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log2_dilution ~ df_dil$step))
+
+deviation_df_all["dilution_axis"] <- "null"
+for(element in step)
+{
+  print(element)
+  deviation_df_all$dilution_axis[deviation_df_all$step == element] <- dilution_axis[element] 
+}
+
+# how many occurences per step
+table(deviation_df_all$step)
+labelsx <- as.vector(table(deviation_df_all$step))
+
+df_sd_all <- data.frame()
+df_sd_all <- as.data.frame(step)
+df_sd_all <- cbind(df_sd_all, as.data.frame(unlist(d_log2_a_sd_sky)))
+df_sd_all <- cbind(df_sd_all, as.data.frame(unlist(d_log2_a_sd_pyp)))
+colnames(df_sd_all) <- c("step", "manual", "automatic")
+
+plot_m_all <- ggplot(df_sd_all, aes(x=step)) +
+          geom_line(aes(y=automatic, color="automatic"), size = method_line_size) +
+          geom_line(aes(y=manual, color="manual"), size = method_line_size)  +
+          scale_color_manual(name = "Analysis", values = c("automatic" = "darkred", "manual" = "steelblue")) +
+          scale_x_discrete(limit = step, labels = dilution_axis) +
+          theme_classic() +
+          theme_bw(base_size=base_size) +
+          theme(legend.position = c(0.15, 0.8),
+          text = element_text(size=base_size),
+          axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+          axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+          xlab("Dilution") + ylab("Log2 (sd) to theo. conc.\n") 
+
+plot_m_all
+
+ggsave(paste(out_dir,"log2_sd_am_merged.png",sep=""),plot_m_all, width = p_width, height = p_height ,dpi=p_dpi)
+.
+```
+
+```{r combinedPlot}
+# add plot to grid 
+library(gridExtra)
+ggsave(paste(out_dir,"combinedCV_sd_r.png",sep=""), arrangeGrob(plot_m_all, plot_cv , nrow=2, ncol=1), width = p_width, height = p_height ,dpi=p_dpi)
+```
+
+```{r combinedPlot_log2sd}
+# add plot to grid 
+m <- cbind(df_sd,df_sd_sky$log2_sd_sky)
+colnames(m) <- c("step", "automatic", "manual")
+
+plot_m <- ggplot(m, aes(x=step)) +
+          geom_line(aes(y=automatic, color="automatic")) +
+          geom_line(aes(y=manual, color="manual")) +
+          scale_color_manual(name = "Analysis", values = c("automatic" = "darkred", "manual" = "steelblue")) +
+          scale_x_discrete(limit = step, labels = dilution_axis) +
+          theme_classic() +
+          theme_bw(base_size=base_size) +
+          theme(legend.position = c(0.2, 0.718),
+          text = element_text(size=base_size),
+          axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+          axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+          xlab("Dilution") + ylab("Log2 (standard from the theo. concentration)\n") 
+
+plot_m
+
+ggsave(paste(out_dir,"log2_sd_am.png",sep=""), plot_m, width = p_width, height = p_height ,dpi=p_dpi)
+
+```
+
+```{r combinedPlot}
+# add plot to grid 
+library(gridExtra)
+ggsave(paste(out_dir,"combinedDeviation.png",sep=""), arrangeGrob(plot_dev_pyp, plot_dev_sky, nrow=1, ncol=2), width = p_width*2, height = p_height ,dpi=p_dpi)
+```
+
+Do the same for ms1:
+```{r coeffcient of variation, echo=FALSE}
+if(use_ms1){
+# pyprophet
+cv <- input[,c("key","int_ms1_pyp","rep")]
+cv$key <- factor(cv$key)
+cv_wide <- spread(cv,rep,int_ms1_pyp)
+d_wide_clean <- spread(cv,rep,int_ms1_pyp)
+# only calcuate sd and rmean based on the replciates!
+cv_wide$sd_pyp <- apply(cv_wide[,c("1","2","3")], 1, sd, na.rm = F)
+cv_wide$rmean_pyp <- rowMeans(cv_wide[,c("1","2","3")], na.rm = F)
+cv_wide$cv_pyp <- (cv_wide$sd_pyp/cv_wide$rmean_pyp) 
+mean(cv_wide$cv_pyp, na.rm=T)
+
+# skyline
+cv_sky <- input[,c("key","int_ms1_sky","rep")]
+cv_sky$key <- factor(cv_sky$key)
+cv_wide_sky <- spread(cv_sky,rep,int_ms1_sky)
+
+# only calcuate sd and rmean based on the replciates!
+cv_wide_sky$sd_sky <- apply(cv_wide_sky[,c("1","2","3")], 1, sd, na.rm = F)
+cv_wide_sky$rmean_sky <- rowMeans(cv_wide_sky[,c("1","2","3")], na.rm = F)
+cv_wide_sky$cv_sky <- (cv_wide_sky$sd_sky/cv_wide_sky$rmean_sky) 
+mean(cv_wide_sky$cv_sky, na.rm=T)
+
+# merge the two 
+merged <- merge(cv_wide,cv_wide_sky,by.x = "key",by.y = "key")
+
+merged_cv <- merged[,c("cv_pyp","cv_sky")]
+colnames(merged_cv) <- c("DIAMetAlyzer", "manual")
+
+boxplot(merged_cv,outline=F)
+
+data_long <- merged_cv %>% gather("origin","cv",DIAMetAlyzer,manual)
+
+plot_cv <- ggplot(data_long, aes(x=origin,y=cv)) +
+         scale_y_continuous(limits=c(0.0,0.6)) +
+         geom_boxplot(outlier.shape = NA) +
+         xlab("\nAnalysis methods") +
+         ylab("Coefficient of variation\n")
+
+ggsave(paste(out_dir,"Coefficientofvariation5FDR_ms1.png",sep=""), plot_cv, width = p_width, height = p_height ,dpi=p_dpi)
+
+}
+```
+
+```{r intensities over the range}
+if(use_ms1){
+# mean
+d_wide_clean$rmean_pyp <- rowMeans(d_wide_clean[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+d_wide_clean <- d_wide_clean[complete.cases(d_wide_clean),]
+
+# second key without replicate 
+d_wide_clean["n_key"] <- sapply(d_wide_clean["key"],removeStepMethod)
+
+unique_keys <- unique(d_wide_clean$n_key)
+
+new_df <- data.frame() 
+
+for (element in unique_keys)
+{
+  current_part <- d_wide_clean[ d_wide_clean["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_pyp"]/max(current_part["rmean_pyp"])
+  new_df <- rbind(new_df,current_part)
+}
+
+new_df["log10_norm_ratio"] <- log10(new_df["norm_ratio"])
+new_df["step"] <- as.numeric(sapply(new_df["key"],extractStep))
+
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+df_dil <- data.frame(dilution,step
+df_dil["log10_dilution"]<- log10(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log10_dilution ~ df_dil$step))
+
+#labelsx <- c(179,172,168,155,134,120,99,57,20,11)
+
+# how many occurences per step
+table(new_df$step)
+labelsx <- as.vector(table(new_df$step))
+dilution_label <- c(1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144)
+
+# linearity slope step1-8
+new_df_filter <- new_df[new_df$step <= 6,]
+line_filter <- coef(lm(new_df_filter$log10_norm_ratio ~ new_df_filter$step))
+
+plot <- ggplot(new_df, aes(x=step, y=log10_norm_ratio)) +
+        scale_y_continuous(breaks=seq(0,-6.0,-0.5)) +
+        expand_limits(y=-6.0) +
+        scale_x_continuous(breaks=seq(1.0, 10.0, 1.0)) +
+        geom_boxplot(aes(group=step)) +
+        geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+        geom_abline(intercept=line_filter[1], slope=line_filter[2], linetype=3)+
+        xlab("\nDilution steps") + 
+        ylab("log10 (normalized intensity ratio)\n") 
+
+plot + annotate(geom = "text", x=1:10,y=0.5, label=labelsx)
+ 
+ggsave(paste(out_dir,"NormalizedIntensityRatio5FDR_ms1.png",sep=""), plot, width = p_width, height = p_height ,dpi=p_dpi)
+}
+```
+
+```{r intensities over the range manual}
+if(use_ms1)
+{
+  
+cv_wide_sky <- spread(cv_sky,rep,int_ms1_sky)
+
+  # mean
+cv_wide_sky$rmean_sky <- rowMeans(cv_wide_sky[,c("1","2","3")], na.rm = F)
+
+# all three replicates need to be present 
+cv_wide_sky <- cv_wide_sky[complete.cases(cv_wide_sky),]
+
+# second key without replicate 
+cv_wide_sky["n_key"] <- sapply(cv_wide_sky["key"],removeStepMethod)
+
+unique_keys <- unique(cv_wide_sky$n_key)
+
+df_new_sky <- data.frame() 
+
+for (element in unique_keys)
+{
+  current_part <- cv_wide_sky[ cv_wide_sky["n_key"]==element,]
+  current_part["norm_ratio"] <- current_part["rmean_sky"]/max(current_part["rmean_sky"])
+  df_new_sky <- rbind(df_new_sky,current_part)
+}
+
+df_new_sky["log10_norm_ratio"] <- log10(df_new_sky["norm_ratio"])
+df_new_sky["step"] <- as.numeric(sapply(df_new_sky["key"],extractStep))
+
+dilution <- c(1,1/4,1/16,1/64,1/256,1/1024,1/4096,1/16384,1/65536,1/262144)
+step <- c(1,2,3,4,5,6,7,8,9,10)
+df_dil <- data.frame(dilution,step)
+df_dil["log10_dilution"]<- log10(df_dil["dilution"])
+line_dil<- coef(lm(df_dil$log10_dilution ~ df_dil$step))
+
+#labelsx <- c(179,172,168,155,134,120,99,57,20,11)
+
+# how many occurences per step
+table(df_new_sky$step)
+labelsky <- as.vector(table(df_new_sky$step))
+
+# linearity slope step1-8
+df_new_sky_filter <- df_new_sky[df_new_sky$step <= 6,]
+line_filter <- coef(lm(df_new_sky_filter$log10_norm_ratio ~ df_new_sky_filter$step))
+
+plot <- ggplot(df_new_sky, aes(x=step, y=log10_norm_ratio)) +
+  scale_y_continuous(breaks=seq(0,-6.0,-0.5)) +
+  expand_limits(y=-6.0) +
+  scale_x_continuous(breaks=seq(1.0, 10.0, 1.0)) +
+         geom_boxplot(aes(group=step)) +
+         geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+         geom_abline(intercept=line_filter[1], slope=line_filter[2], linetype=3)+
+         xlab("\nDilution steps") + ylab("log10 (normalized intensity ratio)\n")
+
+plot + annotate(geom = "text", x=1:10,y=0.5, label=labelsky)
+
+ggsave(paste(out_dir,"NormalizedIntensityRatio5FDR_skyline_ms1.png",sep=""), plot, width = p_width, height = p_height ,dpi=p_dpi)
+}
+```
+
+
+
