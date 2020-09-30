@@ -266,30 +266,23 @@ def main(assay_library, swath_windows, output, method, rt_mindist, retentiontime
 				shuffled_massdiffs[duplicate_index] = addCH2(shuffled_massdiffs[duplicate_index])
 			
 			# set random seed
-			random.seed( 30 )
+			# random.seed(1)
 
-			print("set: ", set(newfraglist).intersection(frag_mz))
-			print("len: ",len(set(newfraglist).intersection(frag_mz)) > 1)
 			while(len(set(newfraglist).intersection(frag_mz)) > 1):
 				random.shuffle(shuffled_massdiffs)
-				print('md2: ', shuffled_massdiffs)
+				print('shuffled_massdiff: ', shuffled_massdiffs)
 				newfraglist = list() # reset in while loop
 				base = value['PrecursorMz'].unique()
 				for dmass in shuffled_massdiffs:
 					newfrag = round(float(base - dmass),6)
 					newfraglist.append(newfrag)
 					base = newfrag
-				print('set1.5: ',set(newfraglist).intersection(frag_mz))
 				if len(set(newfraglist).intersection(frag_mz)) == 1:
 					element = list(set(newfraglist).intersection(frag_mz))[0]
-					print('element: ', element)
 					# get index of element in newfraglist 
 					element_index = newfraglist.index(element)
-					print('element_index: ', element_index)
 					# add CH2 to element which is the same 
 					newfraglist[element_index] = addCH2(newfraglist[element_index])
-					print('newfraglist: ', newfraglist)
-				print("set2: ",set(newfraglist).intersection(frag_mz))
 						
 			# add CH2 additional to las element
 			# newfraglist[-1] = addCH2(newfraglist[-1])
