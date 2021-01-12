@@ -1,0 +1,42 @@
+---
+title: "DIAlignR"
+author: "Oliver Alka"
+date: "1/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+# Either install DIAlingR via BiocManager
+#if(!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("DIAlignR")
+
+# Or build DIAlingR from source 
+# build package in DIAlignR directory
+# mkdir build && cd build && cmake -B. -H.. && make clean && make && make test && cd .. && R CMD build --no-build-vignettes --no-manual .
+
+#remove.packages("DIAlignR")
+#install.packages("testthat")
+
+#install.packages("/Users/alka/Documents/work/software/DIAlignR/DIAlignR_1.1.5.tar.gz", repos=NULL,type="source")
+
+library(DIAlignR)
+
+```
+
+```{r cars}
+# Output path
+output_csv_path_metabo <- "/Volumes/elements/MetaboDIA/Option_1/combined_library_02/20201205_combined_library_02_DIAlignR_std_linear.csv" 
+
+# Input path (with scored pyprophet result (osw/merged.osw) and chromatogram (mzml/*.chrom.mzML))
+dataPath_metabo <- "/Volumes/elements/MetaboDIA/Option_1/combined_library_02" 
+
+alignTargetedRuns(dataPath = dataPath_metabo, 
+                  outFile = output_csv_path_metabo, 
+                  runs = NULL, 
+                  oswMerged = TRUE, 
+                  XICfilter = "sgolay", 
+                  runType="DIA_Metabolomics", 
+                  globalAlignment = "linear")
+```

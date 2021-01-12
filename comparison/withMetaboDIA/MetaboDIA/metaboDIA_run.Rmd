@@ -1,0 +1,56 @@
+---
+title: "MetaboDIA_run"
+author: "Oliver Alka"
+date: "10/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# install XCMS, CAMERA
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("xcms")
+BiocManager::install("CAMERA")
+
+install.packages("/Users/alka/Documents/work/software/MetaboDIA_1.3", repos = NULL, type = "source")
+```
+
+## R Markdown
+```{r}
+library(xcms)
+library(CAMERA)
+library(MetaboDIA)
+
+path_dda = "/Volumes/Samsung_T5/MetaboDIA/prefilter0_0/DDA_msconvert_mzXML_10ppm_min_s02"
+path_dia = "/Volumes/Samsung_T5/MetaboDIA/prefilter0_0/DIA_msconvert_mzxml_centroided_25ppm_min_s02"  
+```
+
+```{r run CAMERA}
+# Wrapper function to run XCMS and Camera
+if(T)
+{
+runCAMERA.DBsearch(dir=path_dda, DB.file="Database.txt",
+                  adduct.file="Adducts_pos.csv", n_core=1, prefilter=c(0,0), 
+                  mode="positive", ppm=10, method="centWave", 
+                  peakwidth=c(1.5,60))
+}
+ 
+if(T)
+{
+runCAMERA.DBsearch(dir=path_dia, DB.file="Database.txt",
+                  adduct.file="Adducts_pos.csv", n_core=1, prefilter=c(0,0), 
+                  mode="positive", ppm=10, method="centWave", 
+                  peakwidth=c(1.5,60))
+}
+```
+
+```{r DDA-based library and DIA extraction workflow}
+# actual analysis
+# the parameters should be similar to the ones we use in our pipeline 
+# but I am not sure about any additional parameters! 
+DDA_DIA_workflow(DIA_dir=path_dia, DDA_dir=path_dda,
+                 DB.file="Database.txt", adduct.file="Adducts_pos.csv",
+                 n_core=1, mode="positive", identification.ppm = 10,
+                 ms1_ppm=25, ms2_ppm=25, ms2_rep=0.5, RT_tol=200, min_sample=0.2)
+```  

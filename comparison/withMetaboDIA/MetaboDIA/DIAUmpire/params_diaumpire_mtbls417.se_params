@@ -1,0 +1,81 @@
+#DIA-Umpire (version 1.4)
+#Data Independent Acquisition data processing and analysis package (Signal extraction module)
+
+#No of threads
+Thread = 24
+
+#Fragment grouping parameter
+RPmax = 25
+RFmax = 300
+CorrThreshold=0.2
+DeltaApex = 0.6
+AdjustFragIntensity =false
+BoostComplementaryIon=false
+
+#Report peak
+ExportPrecursorPeak = false
+ExportFragmentPeak = false
+
+#Signal extraction parameters
+SE.MS1PPM = 25
+SE.MS2PPM = 25
+SE.SN = 2
+SE.MS2SN = 2
+SE.MinMSIntensity = 5
+SE.MinMSMSIntensity = 1
+SE.MaxCurveRTRange = 1.5
+SE.Resolution = 17000
+SE.StartCharge = 1
+SE.EndCharge = 3
+SE.MS2StartCharge = 1
+SE.MS2EndCharge = 3
+SE.NoMissedScan = 1
+SE.MinFrag=2
+SE.EstimateBG = true
+SE.MinNoPeakCluster = 2
+SE.MaxNoPeakCluster = 3
+
+#Isolation window setting
+#The current version supports the following window type: SWATH (fixed window size), V_SWATH (variable SWATH window), MSX, MSE, pSMART
+WindowType=V_SWATH
+
+#Variable SWATH window setting (start m/z, end m/z, separated by Tab)
+==window setting begin
+100	124.32
+123.32	148.65
+147.65	172.97
+171.97	197.3
+196.3	221.62
+220.62	245.95
+244.95	270.27
+269.27	294.59
+293.59	318.92
+317.92	343.24
+342.24	367.57
+366.57	391.89
+390.89	416.22
+415.22	440.54
+439.54	464.86
+463.86	489.19
+488.19	513.51
+512.51	537.84
+536.84	562.16
+561.16	586.49
+585.49	610.81
+609.81	635.14
+634.14	659.46
+658.46	683.78
+682.78	708.11
+707.11	732.43
+731.43	756.76
+755.76	781.08
+780.08	805.41
+804.41	829.73
+828.73	854.05
+853.05	878.38
+877.38	902.7
+901.7	927.03
+926.03	951.35
+950.35	975.68 
+974.68	1000
+==window setting end

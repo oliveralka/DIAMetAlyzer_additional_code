@@ -1,0 +1,134 @@
+---
+title: "Quant_MetaboDIA_DIAMetAlyzer"
+author: "Oliver Alka"
+date: "12/14/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+```
+
+## input
+
+```{r cars}
+mdia_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/mdia_10ppm_25ppm_min_spec_02_pf00/DIA_msconvert_mzxml_centroided_25ppm_min_s02_pf00_mapping.txt"
+mdia_oms_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/oms_mdia_10ppm_25ppm_min_spec_02_pf00/20201205_oms_mdia_10ppm_25ppm_min_spec_02_pf00_DIAlignR_std_linear_mapping.tsv"
+# 67
+oms_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/s45_mt1_resolve_totoc_02_67/20201214_s45_mt1_resolve_totoc_02_67_DIAlignR_std_linear_mapping.tsv"
+oms_py_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/S45_mt1_resolve_totoc_02_67_pyprophet/20201215_s45_mt1_resolve_totoc_67_02_pyprophet_mapping.tsv"
+oms_quant_uk <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/s45_mt1_resolve_unknown_totoc_02_67/20201214_s45_mt1_resolve_unknown_totoc_02_67_DIAlignR_std_linear_mapping.tsv"
+comp_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/combined_library_02_67/20201214_combined_library_02_67_DIAlignR_std_linear_mapping.tsv"
+
+prepareDfFromData <- function(path_to_data)
+{
+  df <- read.csv(path_to_data, sep = "\t", stringsAsFactors = FALSE)
+  df['RT'] <- NULL
+  df[df == 0] <- NA
+  df[, 2: ncol(df) ] <- log(df[2: ncol(df)], 2) # careful Protein column first here! 
+  df <- df[,order(colnames(df))]
+  return(df)
+}
+
+mdia <- prepareDfFromData(mdia_quant_p)
+mdia_oms <- prepareDfFromData(mdia_oms_quant_p)
+oms <- prepareDfFromData(oms_quant_p)
+oms_py <- prepareDfFromData(oms_py_quant_p)
+comp <- prepareDfFromData(comp_quant_p)
+oms_uk <- prepareDfFromData(oms_quant_uk)
+```
+
+```{r reformatting, echo=FALSE}
+# remove Peptide and aggreagte (sum over Protein)
+mdia['Peptide'] <- NULL
+# aggregate information for mdia_quant_p
+mdia_sum <- mdia %>% group_by(Protein) %>% summarise_all(sum)
+```
+
+```{r Pseudo CV}
+calculatePCV <- function(df)
+{
+  df <- select(df, contains("ctrl"))
+  df$sd <- apply(df, 1, sd, na.rm = T)
+  df$rmean <- rowMeans(df, na.rm = T)
+  df$cv <- (df$sd/df$rmean)
+  return(df)
+}
+
+oms_cv <- calculatePCV(oms)
+mdia_sum_cv <- calculatePCV(mdia_sum)
+mdia_oms_cv <- calculatePCV(mdia_oms)
+oms_py_cv <- calculatePCV(oms_py)
+comp_cv <- calculatePCV(comp)
+oms_uk_cv <- calculatePCV(oms_uk)
+
+print(mean(oms_cv$cv))
+print(mean(mdia_sum_cv$cv))
+print(mean(mdia_oms_cv$cv))
+print(mean(oms_py_cv$cv))
+print(mean(comp_cv$cv))
+print(mean(oms_uk_cv$cv))
+
+```
+
+```{r mean over classes (ctrl, CNV, PCV)}
+## Filter rows which have 30% NA values -> samples 20
+filterByNA <- function(DF, n=0) {
+  DF[rowSums(is.na(DF)) <= n,]
+}
+
+filter_sample = 20
+mdia_sum_f <- filterByNA(mdia_sum, filter_sample)
+mdia_oms_f <- filterByNA(mdia_oms, filter_sample)
+oms_f <- filterByNA(oms, filter_sample)
+oms_py_f <- filterByNA(oms_py, filter_sample)
+comp_f <- filterByNA(comp, filter_sample)
+oms_uk_f <- filterByNA(oms_uk, filter_sample)
+```
+
+```{r limma}
+library(limma)
+
+runLimma <- function(df_f)
+{
+  df_f_limma <- df_f
+  rownames(df_f_limma) <- df_f$Protein
+  df_f_limma <- subset(df_f_limma, select=-c(Protein)) # remove Protein
+
+  class_list <- sapply(strsplit(colnames(df_f_limma),"\\_"), `[`, 1)
+  design <- model.matrix(~ 0+factor(class_list))
+  colnames(design) <- c("CNV", "ctrl", "PCV")
+  fit <- lmFit(df_f_limma, design)
+
+  contrast.matrix <- makeContrasts(ctrl-CNV, ctrl-PCV, PCV-CNV, levels=design)
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit2 <- eBayes(fit2)
+
+  results <- decideTests(fit2, adjust.method = "BH", p.value = 0.05)
+  vennDiagram(results)
+  
+  # similar to anova 
+  toptable <- topTable(fit2, adjust="BH", n=20000000000000)
+  toptable_005 <- toptable[toptable$adj.P.Val < 0.05, ]
+  return(toptable_005)
+}
+
+top_oms <- runLimma(oms_f)
+top_oms_py <- runLimma(oms_py_f)
+top_oms_uk <- runLimma(oms_uk_f)
+top_mdia <- runLimma(mdia_sum_f)
+top_mdia_oms <- runLimma(mdia_oms_f)
+top_comp <- runLimma(comp_f)
+
+print(nrow(top_oms))
+print(nrow(top_oms_py))
+print(nrow(top_oms_uk))
+print(nrow(top_mdia))
+print(nrow(top_mdia_oms))
+print(nrow(top_comp))
+
+```
+
+
+
+
