@@ -5,16 +5,14 @@ date: "12/14/2020"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-library(dplyr)
-```
+```{r input}
 
-## input
+# allow to save tables and figures 
+save_tables = F
+save_figures = F
 
-```{r cars}
 mdia_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/mdia_10ppm_25ppm_min_spec_02_pf00/DIA_msconvert_mzxml_centroided_25ppm_min_s02_pf00_mapping.txt"
 mdia_oms_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/oms_mdia_10ppm_25ppm_min_spec_02_pf00/20201205_oms_mdia_10ppm_25ppm_min_spec_02_pf00_DIAlignR_std_linear_mapping.tsv"
-# 67
 oms_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/s45_mt1_resolve_totoc_02_67/20201214_s45_mt1_resolve_totoc_02_67_DIAlignR_std_linear_mapping.tsv"
 oms_py_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/S45_mt1_resolve_totoc_02_67_pyprophet/20201215_s45_mt1_resolve_totoc_67_02_pyprophet_mapping.tsv"
 oms_quant_uk <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/s45_mt1_resolve_unknown_totoc_02_67/20201214_s45_mt1_resolve_unknown_totoc_02_67_DIAlignR_std_linear_mapping.tsv"
@@ -36,48 +34,28 @@ oms <- prepareDfFromData(oms_quant_p)
 oms_py <- prepareDfFromData(oms_py_quant_p)
 comp <- prepareDfFromData(comp_quant_p)
 oms_uk <- prepareDfFromData(oms_quant_uk)
+
+# Remove the outlier for C22H32O2 
+# CNV_PH697289_pos_SWATH.PH697289
+# oms_uk$CNV_PH697289_pos_SWATH.PH697289 <- NULL
+
 ```
 
-```{r reformatting, echo=FALSE}
+```{r reformatting MetaboDIA input}
 # remove Peptide and aggreagte (sum over Protein)
 mdia['Peptide'] <- NULL
 # aggregate information for mdia_quant_p
 mdia_sum <- mdia %>% group_by(Protein) %>% summarise_all(sum)
 ```
 
-```{r Pseudo CV}
-calculatePCV <- function(df)
-{
-  df <- select(df, contains("ctrl"))
-  df$sd <- apply(df, 1, sd, na.rm = T)
-  df$rmean <- rowMeans(df, na.rm = T)
-  df$cv <- (df$sd/df$rmean)
-  return(df)
-}
-
-oms_cv <- calculatePCV(oms)
-mdia_sum_cv <- calculatePCV(mdia_sum)
-mdia_oms_cv <- calculatePCV(mdia_oms)
-oms_py_cv <- calculatePCV(oms_py)
-comp_cv <- calculatePCV(comp)
-oms_uk_cv <- calculatePCV(oms_uk)
-
-print(mean(oms_cv$cv))
-print(mean(mdia_sum_cv$cv))
-print(mean(mdia_oms_cv$cv))
-print(mean(oms_py_cv$cv))
-print(mean(comp_cv$cv))
-print(mean(oms_uk_cv$cv))
-
-```
-
-```{r mean over classes (ctrl, CNV, PCV)}
+```{r filter rows based on NA}
 ## Filter rows which have 30% NA values -> samples 20
 filterByNA <- function(DF, n=0) {
   DF[rowSums(is.na(DF)) <= n,]
 }
 
-filter_sample = 20
+filter_sample = 20 # 60 samples 
+
 mdia_sum_f <- filterByNA(mdia_sum, filter_sample)
 mdia_oms_f <- filterByNA(mdia_oms, filter_sample)
 oms_f <- filterByNA(oms, filter_sample)
@@ -86,7 +64,7 @@ comp_f <- filterByNA(comp, filter_sample)
 oms_uk_f <- filterByNA(oms_uk, filter_sample)
 ```
 
-```{r limma}
+```{r limma as ANOVA}
 library(limma)
 
 runLimma <- function(df_f)
@@ -127,8 +105,306 @@ print(nrow(top_mdia))
 print(nrow(top_mdia_oms))
 print(nrow(top_comp))
 
+if(save_tables){
+write.table(top_oms, "/Volumes/elements/MetaboDIA/post_processing/pp_DIAMetAlyzer.tsv", sep="\t")
+write.table(top_comp, "/Volumes/elements/MetaboDIA/post_processing/pp_Combined.tsv", sep="\t")
+write.table(top_mdia_oms, "/Volumes/elements/MetaboDIA/post_processing/pp_DIAMetAlyzer_metabodialib.tsv", sep="\t")
+write.table(top_oms_uk, "/Volumes/elements/MetaboDIA/post_processing/pp_DIAMetAlyzer_UK.tsv", sep="\t")
+}
 ```
 
+```{r limma for individual groups (ctrl, CNV, PCV)}
+
+runLimma_ctrl_cnv <- function(df_f)
+{
+  df_f_limma <- df_f
+  rownames(df_f_limma) <- df_f$Protein
+  df_f_limma <- subset(df_f_limma, select=-c(Protein)) # remove Protein
+
+  class_list <- sapply(strsplit(colnames(df_f_limma),"\\_"), `[`, 1)
+  design <- model.matrix(~ 0+factor(class_list))
+  colnames(design) <- c("CNV", "ctrl", "PCV")
+  fit <- lmFit(df_f_limma, design)
+
+  contrast.matrix <- makeContrasts(ctrl-CNV, levels=design)
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit2 <- eBayes(fit2)
+
+  results <- decideTests(fit2, adjust.method = "BH", p.value = 0.05)
+  vennDiagram(results)
+  
+  toptable <- topTable(fit2, adjust="BH", n=20000000000000)
+  return(toptable)
+}
+
+runLimma_ctrl_pcv <- function(df_f)
+{
+  df_f_limma <- df_f
+  rownames(df_f_limma) <- df_f$Protein
+  df_f_limma <- subset(df_f_limma, select=-c(Protein)) # remove Protein
+
+  class_list <- sapply(strsplit(colnames(df_f_limma),"\\_"), `[`, 1)
+  design <- model.matrix(~ 0+factor(class_list))
+  colnames(design) <- c("CNV", "ctrl", "PCV")
+  fit <- lmFit(df_f_limma, design)
+
+  contrast.matrix <- makeContrasts(ctrl-PCV, levels=design)
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit2 <- eBayes(fit2)
+
+  results <- decideTests(fit2, adjust.method = "BH", p.value = 0.05)
+  vennDiagram(results)
+  
+  toptable <- topTable(fit2, adjust="BH", n=20000000000000)
+  return(toptable)
+}
+
+runLimma_cnv_pcv <- function(df_f)
+{
+  df_f_limma <- df_f
+  rownames(df_f_limma) <- df_f$Protein
+  df_f_limma <- subset(df_f_limma, select=-c(Protein)) # remove Protein
+
+  class_list <- sapply(strsplit(colnames(df_f_limma),"\\_"), `[`, 1)
+  design <- model.matrix(~ 0+factor(class_list))
+  colnames(design) <- c("CNV", "ctrl", "PCV")
+  fit <- lmFit(df_f_limma, design)
+
+  contrast.matrix <- makeContrasts(CNV-PCV, levels=design)
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit2 <- eBayes(fit2)
+
+  results <- decideTests(fit2, adjust.method = "BH", p.value = 0.05)
+  vennDiagram(results)
+  
+  toptable <- topTable(fit2, adjust="BH", n=20000000000000)
+  return(toptable)
+}
+
+# not filtered by FDR
+cnvpcv_oms_uk <- runLimma_cnv_pcv(oms_uk_f)
+cc_oms_uk <- runLimma_ctrl_cnv(oms_uk_f)
+cp_oms_uk <- runLimma_ctrl_pcv(oms_uk_f)
+
+# label based on compound below 5% FDR
+cc_oms_uk$label <- ifelse(cc_oms_uk$adj.P.Val <= 0.05, "ControlVsCNV", "Not significant")
+cp_oms_uk$label <- ifelse(cp_oms_uk$adj.P.Val <= 0.05, "ControlVsPCV", "Not significant")
+
+cc_cp <- merge(cc_oms_uk, cp_oms_uk,by="row.names")
+cc_cp <-cc_cp[,c("Row.names","label.x","label.y")]
+rownames(cc_cp) <- cc_cp$Row.names
+
+# reoder the labels based on the condition! 
+cc_cp$label <- ifelse(cc_cp$label.x == "ControlVsCNV" & cc_cp$label.y == "ControlVsPCV", "Both", 
+                      ifelse(cc_cp$label.x == "Not significant" & cc_cp$label.y == "Not significant", "Not significant",
+                             ifelse(cc_cp$label.x == "ControlVsCNV" & cc_cp$label.y == "Not significant", "ControlvsCNV",
+                                    ifelse(cc_cp$label.x == "Not significant" & cc_cp$label.y == "ControlVsPCV", "ControlvsPCV", "Error"))))
+
+```
+
+```{r PCA}
+if(T){
+library(ggfortify)
+library(tidyr)
+library(ggplot2)
+library(svglite)
+
+prep_pca <- read.csv(oms_quant_uk, sep = "\t", stringsAsFactors = FALSE)
+rownames(prep_pca) <- prep_pca$Protein
+prep_pca$Protein <- NULL
+prep_pca$RT <- NULL
+
+prep_pca <- na.omit(prep_pca)
+
+# sum/aggregate ctrl, CNV, PCV
+ctrl = prep_pca[, grepl("ctrl", names(prep_pca))]
+cnv = prep_pca[, grepl("CNV", names(prep_pca))]
+pcv = prep_pca[, grepl("PCV", names(prep_pca))]
+
+ctrl$mean <- rowMeans(ctrl)
+cnv$mean <- rowMeans(cnv)
+pcv$mean <- rowMeans(pcv)
+
+all <- data.frame(ctrl$mean, cnv$mean, pcv$mean)
+rownames(all) <- rownames(ctrl)
+colnames(all) <- c("Control","CNV", "PCV")
+
+all_merged <- merge(all,cc_cp,by="row.names")
+
+all_pca <- all_merged[,c("Control","CNV","PCV")]
+
+all.pr <- prcomp(all_pca, center = TRUE, scale = TRUE)
+summary(all.pr)
+
+head(all.pr$rotation)
+head(all.pr$x)
+
+autoplot(all.pr, data = all_merged, colour = "label", size = 10, label.size = 10)
+
+pca_plot <- autoplot(all.pr, data = all_merged, colour = "label", size = 10, label.size = 10)
+
+## save plot as svg
+if(save_figures){
+ggsave("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/pca.svg", pca_plot, device="svg")
+}
+
+## Add the ID based on 
+oms_uk_id <- read.csv("/Volumes/elements/MetaboDIA/Option_1/s45_mt1_resolve_unknown_totoc_02_67/20201214_s45_mt1_resolve_unknown_totoc_02_67_DIAlignR_std_linear.csv")
+oms_uk_id$key <- paste(as.character(oms_uk_id$compound_id),oms_uk_id$sum_formula,oms_uk_id$adducts,sep="_")
+oms_uk_id_min <- unique(oms_uk_id[,c("key","sum_formula","compound_name")])
+
+oms_uk_id_first <- read.csv("/Volumes/elements/MetaboDIA/Option_1/s45_mt1_resolve_unknown_totoc_02_67/20201214_s45_mt1_resolve_unknown_totoc_02_67_DIAlignR_std_linear_firstID_one.txt", sep = "\t")
+oms_uk_id_first$key <- paste(as.character(oms_uk_id_first$compound_id),oms_uk_id_first$sum_formula,oms_uk_id_first$adducts,sep="_")
+oms_uk_id_first_min <- unique(oms_uk_id_first[,c("key","sum_formula","compound_name")])
+
+##merge based on key and rownames?? 
+all_w_id <- merge(all_merged, oms_uk_id_min, by.x = "Row.names", by.y = "key")
+
+cp_oms_uk$Row.names <- rownames(cp_oms_uk)
+cc_oms_uk$Row.names <- rownames(cc_oms_uk)
+
+all_w_id <- merge(all_w_id, cp_oms_uk, by.x = "Row.names", by.y = "Row.names")
+all_w_id <- merge(all_w_id, cc_oms_uk, by.x = "Row.names", by.y = "Row.names" )
+
+# Change in intensity compared to the control.
+all_w_id$FC_ctrl_CNV <- all_w_id$CNV/all_w_id$Control
+all_w_id$FC_ctrl_PCV <- all_w_id$PCV/all_w_id$Control
+
+all_w_first_id <- merge(all_merged, oms_uk_id_first_min, by.x = "Row.names", by.y = "key")
+
+if(save_tables){
+write.table(all_w_id, file='~/Desktop/DIAMetAlyzer_Unknown_analysis.tsv', sep='\t')
+write.table(all_w_first_id, file='~/Desktop/all_w_first_id.tsv', sep='\t')
+}
+
+}
+```
+
+```{r PCA over Patients}
+## PCA of patients 20 vs 20 vs 20 
+## PLS-DA
+## is it possible to distinguish the groups with the DIA data (linear separation)
+
+## based on all compounds (without NA values)
+
+# DIAMetAlyzer + Unknown -> oms_uk
+oms_uk_pca_prep <- oms_uk
+rownames(oms_uk_pca_prep) <- oms_uk_pca_prep$Protein
+oms_uk_pca_prep$Protein <- NULL
+
+# remove Na
+oms_uk_pca_prep <- oms_uk_pca_prep[complete.cases(oms_uk_pca_prep),]
+
+# transpose
+oms_uk_pca_prep_t <- data.frame(t(oms_uk_pca_prep))
+
+# PCA with all compounds 
+oms_uk_pca <- prcomp(oms_uk_pca_prep_t, center = TRUE, scale = TRUE)
+summary(oms_uk_pca)
+
+library(stringr)
+# add label
+pat <- rownames(oms_uk_pca_prep_t)
+pat <- lapply(pat, function(x){str_replace(x, "ctrl", "0Control")})
+oms_uk_pca_prep_t$label <- unlist(lapply(pat, function(x){strsplit(x, "[_]")[[1]][1]}))
+
+pca_pat <- autoplot(oms_uk_pca, data = oms_uk_pca_prep_t, colour = "label", size = 10, label.size = 10) +
+               theme_minimal() +
+               theme(text= element_text(size=20)) +
+               ylim(-0.3,0.3) +
+               xlim(-0.3,0.3) 
+
+if(save_figures){            
+ggsave("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/pca_pat.svg", pca_pat, device="svg")
+}
+
+######################
+
+## PCA with limma results / only significant different compounds (186 analytes)
+cc_cp_sig <- data.frame(cc_cp$Row.names,cc_cp$label)  
+cc_cp_sig <- cc_cp_sig[!cc_cp_sig$cc_cp.label == "Not significant",]
+
+# filter based on rownames with sig label
+oms_uk_pca_prep_sig <- subset(oms_uk_pca_prep, rownames(oms_uk_pca_prep) %in% cc_cp_sig$cc_cp.Row.names)
+oms_uk_pca_prep_sig_t <- data.frame(t(oms_uk_pca_prep_sig))
+
+# PCA with sig compounds 
+oms_uk_sig_pca <- prcomp(oms_uk_pca_prep_sig_t, center = TRUE, scale = TRUE)
+summary(oms_uk_sig_pca)
+
+# add label
+pat1 <- rownames(oms_uk_pca_prep_sig_t)
+pat1 <- lapply(pat1, function(x){str_replace(x, "ctrl", "0Control")})
+oms_uk_pca_prep_sig_t$label <- unlist(lapply(pat1, function(x){strsplit(x, "[_]")[[1]][1]}))
+
+pca_pat_sig <- autoplot(oms_uk_sig_pca, data = oms_uk_pca_prep_sig_t, label = TRUE, size = 10, label.size = 10) + 
+               theme_minimal() +
+               theme(text= element_text(size=20)) +
+               ylim(-0.3,0.3) +
+               xlim(-0.3,0.3) 
+
+if(save_figures){
+ggsave("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/pca_pat_sig.svg", pca_pat_sig, device="svg")
+}
+
+```
+
+```{r subfigure with specific IDs}
+## paragraph/subfigure with ID?
+library(reshape2)
+ 
+quant_figure <- function(output_path, feature)
+{
+  oms_uk_sub <- oms_uk[ oms_uk$Protein == feature , ]
+  rownames(oms_uk_sub) <- oms_uk_sub$Protein
+  oms_uk_sub$Protein <- NULL
+  
+  oms_uk_sub_t <- data.frame(t(oms_uk_sub))
+  
+  pat_id <- rownames(oms_uk_sub_t)
+  pat_id <- lapply(pat_id, function(x){str_replace(x, "ctrl", "0Control")})
+  oms_uk_sub_t$label <- unlist(lapply(pat_id, function(x){strsplit(x, "[_]")[[1]][1]}))
+  
+  oms_uk_sub_t[order(oms_uk_sub_t$label),]
+  
+  test.m <- melt(oms_uk_sub_t)
+  
+  library(ggplot2)
+  subfig <- ggplot(test.m, aes(x = variable, y = value, fill = label)) +
+    geom_boxplot() +
+    theme_minimal() +
+    theme(text= element_text(size=20)) +
+    labs(y="Intensity", x = "")
+  
+  ggsave(output_path, subfig, device="svg", height = 5, width = 10)
+}
+
+# filter one outlier see above.
+if(save_figures){
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C20H32O2_wo.svg","2030_C20H32O2_[M+H]+")
+
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C22H32O2_wo.svg","1850_C22H32O2_[M+H]+")
+
+# Oleoylcarnitine (PPCV=0.01 (1.5x); PCNV=0.002 (1.4x)) 1754_C25H47NO4_[M+H]+
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C25H47NO4_wo.svg","1754_C25H47NO4_[M+H]+")
+# L-Palmitoylcarnitine (PPCV=0.02 (1.5x))
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C23H45NO4_wo.svg","1666_C23H45NO4_[M+H]+")
+#Linoelaidylcarnitine (PPCV = 0.03 (1.4x) ; PCNV = 0.04 (1.5x))
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C25H45NO4_wo.svg","1350_C25H45NO4_[M+H]+")
+#hypoxanthine levels in CNV (PCNV = 0.006 (3.9x))
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C5H4N4O_wo.svg","108_C5H4N4O_[M+H]+")
+#gamma-Glutamylphenylalanine (PPCV = 0.0006 (1.7x); PCNV = 0.002 (1.6x))
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C14H18N2O5_wo.svg","280_C14H18N2O5_[M+H]+")
+#gamma-Glutamylisoleucine (PPCV = 0.04 (1.7x); PCNV = 0.01 (1.8x))
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C11H20N2O5_wo.svg","276_C11H20N2O5_[M+H]+")
+#Dityrosine (PPCV = 0.03 (1.7x); PCNV = 0.002 (2.4x)
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C18H20N2O6_wo.svg","914_C18H20N2O6_[M+H]+")
+# 601.271468 m/z and a retention time 579s (PCNV=0.0002; PPCV=0.000008) 874_C38H42O4_[M+K]+
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C38H42O4_wo.svg","874_C38H42O4_[M+K]+")
+# 944.360964 m/z and 311s  (PCNV=0.005; PPCV=0.03) 235_C36H59N9O18_[M+K]+
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C36H59N9O18_wo.svg","235_C36H59N9O18_[M+K]+")
+}
+```
 
 
 
