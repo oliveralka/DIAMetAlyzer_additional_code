@@ -1,0 +1,11 @@
+Scripts for the comparison of manual skyline validation and openswath / pyprophet resutls based on the current assay library. 
+ROC, Precision-Recall, Quantification 
+
+For comparison of MS2 only (in skyline) use _loop.py
+For comparison of MS1MS2 data (in skyline / OpenSWATH) use _loop_ms1ms2.py
+
+1) filter_mscore.py
+2) generateComparison*.py
+3) createMultiConfusionMatrixTable.py
+4) use "find ./ -type f -name "*matrix.tsv" -exec cat {} \; > ./all.tsv" to merge all matrix data from the different decoy methods 
+and remove the additional headers in all.tsv
