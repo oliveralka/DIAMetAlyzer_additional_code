@@ -6,12 +6,12 @@
 # date: 05.0.2019 
 #
 # methods: 
-# 1: rtperm -  retention time permutation (same precursor and fragments - other RT) 
+# 1: rtperm - retention time permutation (same precursor and fragments - other RT) 
 # 2: mz (same precursor and fragments - other mz or other window))
 # 3: linmassperm - same precursor mz, but different fragments (linear mass shift)
 # 4: swathwindow - precursor_mz to other mass window
-# 5: fragFromDB - use the same precursor, but fragments with lower mz as prec from
-#                 all the fragment masses existing in the assay annotatet library.
+# 5: fragdb - use the same precursor, but fragments with lower mz as prec from
+#             all the fragment masses existing in the assay annotatet library.
 
 # The passatuto fragmentation tree based method can be used using the DIAMetAlyzer 
 # KNIME workflow 
@@ -169,8 +169,6 @@ def main(assay_library, swath_windows, output, method, rt_mindist, retentiontime
 	# the deocys into the small windows? Approximately same amount of precursors - so it should not be
 	# too bad.
 	
-	# TODO: Is the adduct needed here as well, when why / why not? 
-
 	# add _decoy to TransitionGroupId, CompoundName
 	for key, value in d_lib_decoy.items():
 		value['TransitionGroupId'] = value['TransitionGroupId'].apply(str) + '_decoy'
@@ -299,7 +297,6 @@ def main(assay_library, swath_windows, output, method, rt_mindist, retentiontime
 
 		d_lib_decoy[key] = value
 		
-	# TODO: ADD CH2 to MS1 level (Precursor) 
 	# This works only for methods which only use the MS2 level
 	# linmzperm, fragDB, shufflefrag
 	
