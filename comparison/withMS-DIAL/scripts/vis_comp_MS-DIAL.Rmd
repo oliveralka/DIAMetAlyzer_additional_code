@@ -1,0 +1,73 @@
+---
+title: "Vis_comp_ms-dial"
+author: "Oliver Alka"
+date: "29/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(reshape2)
+```
+
+
+```{r input}
+
+ms_dial_1 <- read.csv("/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20210609_ms_dial_prep/MS-DIAL_export/comparison/export_20210616_output_lib_all/20210616_output_lib_all_PestMix1_8Step1Plasma1SWATH20-50_comparison.tsv", sep = "\t")
+
+ms_dial_2 <- read.csv("/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20210609_ms_dial_prep/MS-DIAL_export/comparison/export_20210618_output_lib_all_rtfiler_on/20210618_output_lib_all_rtfiler_on_PestMix1_8Step1Plasma1SWATH20-50_comparison.tsv", sep = "\t")
+
+out_dir <- "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20210609_ms_dial_prep/MS-DIAL_export/comparison/"
+```
+
+```{r extract minimal confusion matrix}
+# construct and rename the confusion matrix 
+# for the individual tests
+confusion_py <- data.frame(table(ms_dial_1['confusion']))
+colnames(confusion_py) <- c("Description", "Count")
+
+confusion_md1 <- data.frame(table(ms_dial_1['confusion_md']))
+colnames(confusion_md1) <- c("Description", "Count")
+
+confusion_md2 <- data.frame(table(ms_dial_2['confusion_md']))
+colnames(confusion_md2) <- c("Description", "Count")
+
+# merge and rename the confusion matrix dataframes
+merge <- merge(confusion_py, confusion_md1, all.y = T, by = "Description")
+merge[is.na(merge)] <- 0
+colnames(merge) <- c("Description", "Count_pyprophet", "Count_MS-DIAL")
+
+merge1 <- merge(merge, confusion_md2, all.y = T, by = "Description")
+colnames(merge1) <- c("Description", "DIAMetAylzer", "Count_MS-DIAL","MS-DIAL")
+
+# remove the unused variables
+merge1$`Count_MS-DIAL` <- NULL
+
+# reshape
+merge_melt2 <- melt(merge1)
+
+base_size = 20
+p_width = 10
+p_height = 10
+p_dpi = 300
+
+#reorder levels of Descirption
+merge_melt2$Description <- factor(merge_melt2$Description, levels = c("FP", "FN", "TP"))
+
+plot <- ggplot(merge_melt2, aes(x=variable, y=value)) +
+        geom_bar(stat = "identity", aes(fill=Description)) +
+        scale_fill_manual(values=c("darkorange2", "steelblue2", "springgreen3")) +
+        theme(
+            text = element_text(size=base_size),
+            axis.text.x = element_text(size = base_size, angle = -90, hjust=0.95,color = "black", face = "plain", vjust = 0.3),
+            axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+       xlab("") + ylab("Number of compounds\n")
+
+
+plot
+
+ggsave(paste(out_dir,"comparison_ms_dial_small_color.png", sep=""), plot ,width = p_width, height = p_height ,dpi=p_dpi)
+
+
+```
+
