@@ -56,7 +56,8 @@ merge_melt2$Description <- factor(merge_melt2$Description, levels = c("FP", "FN"
 
 plot <- ggplot(merge_melt2, aes(x=variable, y=value)) +
         geom_bar(stat = "identity", aes(fill=Description)) +
-        scale_fill_manual(values=c("darkorange2", "steelblue2", "springgreen3")) +
+        scale_fill_manual(values=c("#666666", "#3399FF", "#339933")) +
+        theme_minimal() +
         theme(
             text = element_text(size=base_size),
             axis.text.x = element_text(size = base_size, angle = -90, hjust=0.95,color = "black", face = "plain", vjust = 0.3),
