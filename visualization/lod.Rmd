@@ -1,0 +1,154 @@
+---
+title: "LOD"
+author: "Oliver Alka"
+date: "23/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Measurment of the LOD and LOQ based on the Signal-to-noise approach
+# LOD: 3:1
+# LOQ: 10:1
+
+extractDilutionStep <- function(x)
+{
+  sub = str_extract(x,"Step(\\d+)")
+  sub = str_replace(sub, "Step", "")
+  return(sub)
+}
+
+extractReplicate <- function(x)
+{
+  sub = str_extract(x,"Plasma(\\d+)")
+  sub = str_replace(sub, "Plasma", "")
+  return(sub)
+}
+
+```
+
+```{r input}
+# unfiltered results
+input_path = "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20211123_LOD/p251scadd11_052_pyprophet.tsv"
+fmol_over_dilution_path = "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20211123_LOD/fmol_over_dilution.csv"
+
+input <- read.csv(input_path, sep="\t", stringsAsFactors=F)
+fmol_over_dilution <- read.csv(fmol_over_dilution_path, stringsAsFactors=F)
+
+out_dir <- "/Users/alka/Documents/work/projects/OpenSWATH_Metabolomics_data/20211123_LOD/"
+
+# S/N threshold - S/N has to be higher than 10
+sn_threshold = 10
+# maximum number of dilutions in the diultion series
+highest_dilution = 10
+```
+
+```{r pressure, echo=FALSE}
+# remove decoys 
+input <- input[input$decoy == 0,]
+
+# filter by peak group level = 1
+input <- input[input$peak_group_rank == 1,]
+
+# extract the "step" form filename 
+input["dilution"] <- as.numeric(sapply(input["filename"], extractDilutionStep))
+input["replicate"] <- as.numeric(sapply(input["filename"], extractReplicate))
+
+# add data frame to store the computed data
+sn_df <- data.frame(transition_id_group=character(),
+                   name=character(),
+                   sumformula=character(),
+                   mean_int_1=double(),
+                   mean_int_2=double(),
+                   mean_int_3=double(),
+                   mean_int_4=double(),
+                   mean_int_5=double(),
+                   mean_int_6=double(),
+                   mean_int_7=double(),
+                   mean_int_8=double(),
+                   mean_int_9=double(),
+                   mean_int_10=double(),
+                   SN_1=double(),
+                   SN_2=double(),
+                   SN_3=double(),
+                   SN_4=double(),
+                   SN_5=double(),
+                   SN_6=double(),
+                   SN_7=double(),
+                   SN_8=double(),
+                   SN_9=double(),
+                   SN_10=double(),
+                   LOD_SN=double(),
+                   LOD_Dilution=double())
+
+
+
+for (group_id in unique(input[["transition_group_id"]])){
+  comp <- input[input["transition_group_id"] == group_id,]
+  max_diltuion = max(comp$dilution) 
+  
+  current_transition_group_id = unique(comp$transition_group_id)
+  current_name = unique(comp$compound_name)
+  current_sumformula = unique(comp$sum_formula)
+  
+  # caclulate the mean intensity per compound and step in the dilution series
+  mean_intensity_list <- c()
+  for (elem in sort(unique(comp$dilution)))
+  {
+    current_dilution <- comp[comp["dilution"] == elem,]
+    mean_intensity <- mean(current_dilution[["Intensity"]])
+    mean_intensity_list <- append(mean_intensity_list, mean_intensity)
+  }
+  
+  # caculate the singal to noise - here the last detected intensity for the compoundis regarded as noise! 
+  max_dilution = max(sort(unique(comp$dilution)))
+  noise_intensity = mean_intensity_list[max_dilution]
+  sn_list = mean_intensity_list/noise_intensity
+  
+  if (length(mean_intensity_list) != highest_dilution) # same is true for the sn_list then fill with NA to hit 10 
+  {
+    number_na = rep(NA, highest_dilution - length(mean_intensity_list))
+    mean_intensity_list <- append(mean_intensity_list, number_na)
+    sn_list <- append(sn_list, number_na)
+  }
+  
+  counter = 1
+  for (elem in sn_list)
+  {
+    if (elem > sn_threshold)
+    {
+      last_over_threshold <- elem
+      last_counter_over_threshold <- counter
+    }
+   counter = counter + 1 
+  }
+  
+  vector <- c(current_transition_group_id,current_name,current_sumformula,mean_intensity_list,sn_list,last_over_threshold, last_counter_over_threshold)
+  row <- data.frame(t(vector))
+  colnames(row) <- colnames(sn_df)
+  
+  sn_df <- rbind.fill(sn_df, row)
+}
+
+table(sn_df$LOD_Dilution)
+
+write.csv(sn_df, file=paste(out_dir,"SN_calculation.csv", sep = ""))
+
+```
+
+```{r}
+# add concentration values based on the last value over the dilution series! 
+LOD <- sn_df[,c("name","sumformula","LOD_SN","LOD_Dilution")]
+LOD["LOD [fmol/µl]"] <- NA
+
+for (i in 1:nrow(LOD)){
+  current_bla <- fmol_over_dilution[fmol_over_dilution$name == LOD$name[i],]
+  concentration <- current_bla[paste("X",LOD$LOD_Dilution[1],sep="")]
+  LOD[i, "LOD [fmol/µl]"] <- concentration
+}
+
+write.csv(LOD, file=paste(out_dir,"LOD.csv", sep = ""))
+
+```
+
