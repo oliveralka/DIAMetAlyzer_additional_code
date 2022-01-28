@@ -255,7 +255,7 @@ for (element in unique(new_metabolites$Name))
         geom_boxplot(aes(group=step)) +
         geom_errorbar(aes(ymin=log2_rmean_pyp-log2_sd, ymax=log2_rmean_pyp+log2_sd), width=.2,
                  position=position_dodge(.9)) +
-        #xlim(0,11) +
+        #geom_point(size = 2) +
         scale_y_continuous(breaks=seq(7,22.0,1.0)) +
         ylim(7,22) +
         scale_x_discrete(limit = step_v, labels = dilution_axis, drop = F) +
@@ -275,6 +275,35 @@ for (element in unique(new_metabolites$Name))
   
   ggsave(paste(out_dir,"Examplelog2","_",element,"_5FDR.svg",sep=""),plot_metabo, width = p_width, height = p_height ,dpi=p_dpi)
 
+
+  sub_current <- current[c("step","log2_1x","log2_2x","log2_3x")]
+  sub_current_t <- data.frame(t(sub_current))
+  colnames(sub_current_t) <- sub_current_t[1,]
+  sub_current_t <- sub_current_t[-c(1),]
+  sub_current_t_melt <- melt(sub_current_t)
+
+  plot_metabo_1 <- ggplot(sub_current_t_melt, aes(x=variable, y=value)) +
+      geom_boxplot() +
+      geom_point(size = 2) +
+      scale_y_continuous(breaks=seq(7,22.0,1.0)) +
+      ylim(7,22) +
+      scale_x_discrete(limit = step_v, labels = dilution_axis, drop = F) +
+      theme_classic() +
+      theme_bw(base_size=base_size) +
+      theme(legend.position = "none",
+      text = element_text(size=base_size),
+      axis.text.x = element_text(size = base_size, angle = -90, hjust = 0.0 ,color = "black", face = "plain", vjust = 0.4),
+      axis.text.y = element_text(size = base_size, hjust = 0 ,color = "black", face = "plain")) +
+      geom_abline(intercept=line_dil[1], slope=line_dil[2], linetype=2)+ 
+      xlab("Dilution") + ylab("Log2 (intensity)\n") 
+
+  plot_metabo_1 
+  
+  # populate different ggplot objects for each element
+  assign(paste("plot_metabo_1",element,sep="_"), plot_metabo_1)
+  
+  ggsave(paste(out_dir,"ExampleTESTlog2","_",element,"_5FDR.svg",sep=""), plot_metabo_1, width = p_width, height = p_height ,dpi=p_dpi)
+
 }
 ```
 
@@ -282,6 +311,8 @@ for (element in unique(new_metabolites$Name))
 # add plot to grid 
 library(gridExtra)
 ggsave(paste(out_dir,"Example_combined_int.svg",sep=""), arrangeGrob(plot_metabo_Amidosulfuron, plot_metabo_Azaconazole, plot_metabo_Fenpyroximate, nrow=2, ncol=2), width = p_width*2, height = p_height*2 ,dpi=p_dpi)
+
+ggsave(paste(out_dir,"Example_boxplot_combined_int.svg",sep=""), arrangeGrob(plot_metabo_1_Amidosulfuron, plot_metabo_1_Azaconazole, plot_metabo_1_Fenpyroximate, nrow=2, ncol=2), width = p_width*2, height = p_height*2 ,dpi=p_dpi)
 ```
 
 ```{r intensities over the range log10}

@@ -9,7 +9,8 @@ output: html_document
 
 # allow to save tables and figures 
 save_tables = F
-save_figures = T
+save_figures = F
+save_plots = T
 
 mdia_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/mdia_10ppm_25ppm_min_spec_02_pf00/DIA_msconvert_mzxml_centroided_25ppm_min_s02_pf00_mapping.txt"
 mdia_oms_quant_p <- "/Volumes/elements/MetaboDIA/comparison/mapDIA_analysis/oms_mdia_10ppm_25ppm_min_spec_02_pf00/20201205_oms_mdia_10ppm_25ppm_min_spec_02_pf00_DIAlignR_std_linear_mapping.tsv"
@@ -368,10 +369,14 @@ quant_figure <- function(output_path, feature)
   oms_uk_sub_t[order(oms_uk_sub_t$label),]
   
   test.m <- melt(oms_uk_sub_t)
+  print(nrow(test.m))
+  
+  print(test.m)
   
   library(ggplot2)
   subfig <- ggplot(test.m, aes(x = variable, y = value, fill = label)) +
     geom_boxplot() +
+    scale_y_continuous(limits = c(5, 20)) +
     theme_minimal() +
     theme(text= element_text(size=20)) +
     labs(y="Intensity", x = "")
@@ -380,29 +385,29 @@ quant_figure <- function(output_path, feature)
 }
 
 # filter one outlier see above.
-if(save_figures){
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C20H32O2_wo.svg","2030_C20H32O2_[M+H]+")
+if(save_plots){
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C20H32O2_wo.svg","2030_C20H32O2_[M+H]+")
 
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C22H32O2_wo.svg","1850_C22H32O2_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C22H32O2_wo.svg","1850_C22H32O2_[M+H]+")
 
 # Oleoylcarnitine (PPCV=0.01 (1.5x); PCNV=0.002 (1.4x)) 1754_C25H47NO4_[M+H]+
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C25H47NO4_wo.svg","1754_C25H47NO4_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C25H47NO4_wo.svg","1754_C25H47NO4_[M+H]+")
 # L-Palmitoylcarnitine (PPCV=0.02 (1.5x))
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C23H45NO4_wo.svg","1666_C23H45NO4_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C23H45NO4_wo.svg","1666_C23H45NO4_[M+H]+")
 #Linoelaidylcarnitine (PPCV = 0.03 (1.4x) ; PCNV = 0.04 (1.5x))
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C25H45NO4_wo.svg","1350_C25H45NO4_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C25H45NO4_wo.svg","1350_C25H45NO4_[M+H]+")
 #hypoxanthine levels in CNV (PCNV = 0.006 (3.9x))
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C5H4N4O_wo.svg","108_C5H4N4O_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C5H4N4O_wo.svg","108_C5H4N4O_[M+H]+")
 #gamma-Glutamylphenylalanine (PPCV = 0.0006 (1.7x); PCNV = 0.002 (1.6x))
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C14H18N2O5_wo.svg","280_C14H18N2O5_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C14H18N2O5_wo.svg","280_C14H18N2O5_[M+H]+")
 #gamma-Glutamylisoleucine (PPCV = 0.04 (1.7x); PCNV = 0.01 (1.8x))
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C11H20N2O5_wo.svg","276_C11H20N2O5_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C11H20N2O5_wo.svg","276_C11H20N2O5_[M+H]+")
 #Dityrosine (PPCV = 0.03 (1.7x); PCNV = 0.002 (2.4x)
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C18H20N2O6_wo.svg","914_C18H20N2O6_[M+H]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C18H20N2O6_wo.svg","914_C18H20N2O6_[M+H]+")
 # 601.271468 m/z and a retention time 579s (PCNV=0.0002; PPCV=0.000008) 874_C38H42O4_[M+K]+
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C38H42O4_wo.svg","874_C38H42O4_[M+K]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C38H42O4_wo.svg","874_C38H42O4_[M+K]+")
 # 944.360964 m/z and 311s  (PCNV=0.005; PPCV=0.03) 235_C36H59N9O18_[M+K]+
-quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/C36H59N9O18_wo.svg","235_C36H59N9O18_[M+K]+")
+quant_figure("/Users/alka/Documents/work/projects/DIAMetAlyzer_all/OSW_inkscape/publication/2021/With_outlier_test/5-15_dot/C36H59N9O18_wo.svg","235_C36H59N9O18_[M+K]+")
 }
 ```
 
